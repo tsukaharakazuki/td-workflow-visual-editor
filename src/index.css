@@ -1,0 +1,117 @@
+:root {
+  font-family: Inter, "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  color: #171626;
+  background: #f7f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --primary-1: #494fff;
+  --primary-2: #8753ff;
+  --secondary-1: #847bf2;
+  --secondary-2: #c466d4;
+  --accent-green: #9dcc4c;
+  --accent-yellow: #d9e47c;
+  --accent-red: #ee2328;
+  --accent-coral: #f15c60;
+  --accent-orange: #f69068;
+  --ink: #171626;
+  --muted: #6f6d7c;
+  --surface: #ffffff;
+  --surface-soft: #f7f7fb;
+  --surface-tint: #f0efff;
+  --border: #e4e3ed;
+  --border-strong: #d1cfdf;
+  --shadow-sm: 0 1px 2px rgba(28, 25, 52, 0.05), 0 4px 12px rgba(28, 25, 52, 0.04);
+  --shadow-lg: 0 24px 80px rgba(46, 40, 104, 0.16), 0 8px 24px rgba(46, 40, 104, 0.08);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--primary-1);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: Manrope, Inter, "Noto Sans JP", sans-serif;
+}
+
+code,
+pre,
+.monospace {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+::selection {
+  color: #ffffff;
+  background: var(--primary-1);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: #c7c5d3;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #aaa7ba;
+  background-clip: padding-box;
+}

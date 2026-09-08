@@ -1,0 +1,9 @@
+_export:
+  database: demo_analytics
+  audit_table: workflow_publish_audit
+
++write_audit:
+  td>: ../queries/transform.sql
+  insert_into: ${audit_table}
+  database: ${database}
+  engine: presto

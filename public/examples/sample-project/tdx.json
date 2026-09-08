@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "workflow_project": "workflow-inspector-sample",
+  "site": "us01",
+  "database": "demo_analytics",
+  "entrypoint": "main.dig",
+  "notes": "Fixture only; no credentials or connection details are stored here."
+}

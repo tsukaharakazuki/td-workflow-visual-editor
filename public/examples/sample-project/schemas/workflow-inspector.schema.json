@@ -1,0 +1,100 @@
+{
+  "format": "td-workflow-lineage-schema",
+  "version": 1,
+  "project": "workflow-inspector-sample",
+  "workflow": "main.dig",
+  "databases": [
+    {
+      "name": "demo_analytics",
+      "description": "Synthetic metadata fixture for local inspection",
+      "tables": [
+        {
+          "name": "raw_events",
+          "kind": "source",
+          "columns": [
+            { "name": "event_id", "type": "varchar", "nullable": false },
+            { "name": "profile_id", "type": "varchar", "nullable": false },
+            { "name": "event_time", "type": "timestamp", "nullable": false },
+            { "name": "event_type", "type": "varchar", "nullable": true }
+          ]
+        },
+        {
+          "name": "profile_attributes",
+          "kind": "source",
+          "columns": [
+            { "name": "profile_id", "type": "varchar", "nullable": false },
+            { "name": "region", "type": "varchar", "nullable": true },
+            { "name": "profile_type", "type": "varchar", "nullable": true }
+          ]
+        },
+        {
+          "name": "workflow_extracted_events",
+          "kind": "derived",
+          "columns": [
+            { "name": "event_id", "type": "varchar" },
+            { "name": "profile_id", "type": "varchar" },
+            { "name": "event_time", "type": "timestamp" },
+            { "name": "event_type", "type": "varchar" },
+            { "name": "region", "type": "varchar" },
+            { "name": "profile_type", "type": "varchar" }
+          ]
+        },
+        {
+          "name": "workflow_daily_summary",
+          "kind": "derived",
+          "columns": [
+            { "name": "profile_id", "type": "varchar" },
+            { "name": "region", "type": "varchar" },
+            { "name": "profile_type", "type": "varchar" },
+            { "name": "event_count", "type": "bigint" },
+            { "name": "last_event_time", "type": "timestamp" }
+          ]
+        },
+        {
+          "name": "workflow_optional_summary",
+          "kind": "derived",
+          "columns": [
+            { "name": "profile_id", "type": "varchar" },
+            { "name": "region", "type": "varchar" },
+            { "name": "profile_type", "type": "varchar" },
+            { "name": "event_count", "type": "bigint" },
+            { "name": "last_event_time", "type": "timestamp" }
+          ]
+        },
+        {
+          "name": "workflow_region_summary_region_a",
+          "kind": "derived",
+          "columns": [
+            { "name": "profile_id", "type": "varchar" },
+            { "name": "region", "type": "varchar" },
+            { "name": "profile_type", "type": "varchar" },
+            { "name": "event_count", "type": "bigint" },
+            { "name": "last_event_time", "type": "timestamp" }
+          ]
+        },
+        {
+          "name": "workflow_region_summary_region_b",
+          "kind": "derived",
+          "columns": [
+            { "name": "profile_id", "type": "varchar" },
+            { "name": "region", "type": "varchar" },
+            { "name": "profile_type", "type": "varchar" },
+            { "name": "event_count", "type": "bigint" },
+            { "name": "last_event_time", "type": "timestamp" }
+          ]
+        },
+        {
+          "name": "workflow_publish_audit",
+          "kind": "derived",
+          "columns": [
+            { "name": "profile_id", "type": "varchar" },
+            { "name": "region", "type": "varchar" },
+            { "name": "profile_type", "type": "varchar" },
+            { "name": "event_count", "type": "bigint" },
+            { "name": "last_event_time", "type": "timestamp" }
+          ]
+        }
+      ]
+    }
+  ]
+}

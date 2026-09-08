@@ -1,0 +1,15 @@
+name: workflow-inspector-sample
+version: 1
+entrypoint: main.dig
+schema: schemas/workflow-inspector.schema.json
+description: Metadata-only sample for the client-side workflow inspector
+files:
+  - main.dig
+  - queries/extract.sql
+  - queries/transform.sql
+  - tasks/finalize.dig
+  - schemas/workflow-inspector.schema.json
+privacy:
+  includes_row_data: false
+  includes_credentials: false
+  includes_external_destinations: false

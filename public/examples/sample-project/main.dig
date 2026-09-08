@@ -1,0 +1,48 @@
+timezone: UTC
+
+_export:
+  database: demo_analytics
+  extracted_table: workflow_extracted_events
+  output_table: workflow_daily_summary
+  optional_table: workflow_optional_summary
+  regional_table: workflow_region_summary
+  enable_optional_branch: true
+
++extract:
+  td>: queries/extract.sql
+  create_table: ${extracted_table}
+  database: ${database}
+  engine: presto
+
++transform:
+  _parallel: true
+
+  +aggregate:
+    td>: queries/transform.sql
+    insert_into: ${output_table}
+    database: ${database}
+    engine: presto
+
+  +optional:
+    if>: ${enable_optional_branch}
+    _do:
+      +write_optional:
+        td>: queries/transform.sql
+        insert_into: ${optional_table}
+        database: ${database}
+        engine: presto
+
+  +regional:
+    for_each>:
+      region:
+        - region_a
+        - region_b
+    _do:
+      +write_region:
+        td>: queries/transform.sql
+        insert_into: ${regional_table}_${region}
+        database: ${database}
+        engine: presto
+
++publish:
+  call>: tasks/finalize
