@@ -239,6 +239,82 @@ function downloadBytes(bytes: Uint8Array, filename: string, type: string) {
   URL.revokeObjectURL(url)
 }
 
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
+
+function createExportEdgeOverlay(container: HTMLElement): () => void {
+  const paths = [...container.querySelectorAll<SVGPathElement>('.react-flow__edge-path')]
+  if (paths.length === 0) return () => undefined
+
+  const containerRect = container.getBoundingClientRect()
+  const overlay = document.createElementNS(SVG_NAMESPACE, 'svg')
+  overlay.classList.add('graph-export-edge-overlay')
+  overlay.setAttribute('width', String(containerRect.width))
+  overlay.setAttribute('height', String(containerRect.height))
+  overlay.setAttribute('viewBox', `0 0 ${containerRect.width} ${containerRect.height}`)
+  overlay.setAttribute('aria-hidden', 'true')
+  overlay.style.position = 'absolute'
+  overlay.style.inset = '0'
+  overlay.style.width = '100%'
+  overlay.style.height = '100%'
+  overlay.style.overflow = 'visible'
+  overlay.style.pointerEvents = 'none'
+  overlay.style.zIndex = '1'
+
+  const defs = document.createElementNS(SVG_NAMESPACE, 'defs')
+  overlay.appendChild(defs)
+  paths.forEach((path, index) => {
+    const matrix = path.getScreenCTM()
+    if (!matrix) return
+    let length: number
+    try {
+      length = path.getTotalLength()
+    } catch {
+      return
+    }
+    const steps = Math.max(2, Math.ceil(length / 12))
+    const points: string[] = []
+    for (let step = 0; step <= steps; step += 1) {
+      const local = path.getPointAtLength((length * step) / steps)
+      const point = new DOMPoint(local.x, local.y).matrixTransform(matrix)
+      const x = point.x - containerRect.left
+      const y = point.y - containerRect.top
+      points.push(`${step === 0 ? 'M' : 'L'} ${x} ${y}`)
+    }
+
+    const style = getComputedStyle(path)
+    const stroke = style.stroke === 'none' ? '#aaa7bd' : style.stroke
+    const markerId = `graph-export-arrow-${index}`
+    const marker = document.createElementNS(SVG_NAMESPACE, 'marker')
+    marker.setAttribute('id', markerId)
+    marker.setAttribute('markerWidth', '9')
+    marker.setAttribute('markerHeight', '9')
+    marker.setAttribute('viewBox', '-5 -5 10 10')
+    marker.setAttribute('refX', '0')
+    marker.setAttribute('refY', '0')
+    marker.setAttribute('orient', 'auto')
+    marker.setAttribute('markerUnits', 'userSpaceOnUse')
+    const arrow = document.createElementNS(SVG_NAMESPACE, 'path')
+    arrow.setAttribute('d', 'M -4 -3 L 0 0 L -4 3 Z')
+    arrow.setAttribute('fill', stroke)
+    marker.appendChild(arrow)
+    defs.appendChild(marker)
+
+    const edge = document.createElementNS(SVG_NAMESPACE, 'path')
+    edge.setAttribute('d', points.join(' '))
+    edge.setAttribute('fill', 'none')
+    edge.setAttribute('stroke', stroke)
+    edge.setAttribute('stroke-width', style.strokeWidth || '1.5')
+    edge.setAttribute('stroke-linecap', 'round')
+    edge.setAttribute('stroke-linejoin', 'round')
+    if (style.strokeDasharray !== 'none') edge.setAttribute('stroke-dasharray', style.strokeDasharray)
+    edge.setAttribute('marker-end', `url(#${markerId})`)
+    overlay.appendChild(edge)
+  })
+
+  container.appendChild(overlay)
+  return () => overlay.remove()
+}
+
 function ImportScreen({ onFile, onSample, loading }: {
   onFile: (file: File) => void
   onSample: () => void
@@ -819,18 +895,23 @@ function App() {
 
   const captureGraphImage = async (): Promise<string> => {
     if (!graphRef.current) throw new Error('グラフが表示されていません')
-    return toPng(graphRef.current, {
-      backgroundColor: '#f7f7fb',
-      cacheBust: true,
-      pixelRatio: 2,
-      filter: (node) => {
-        if (!node || typeof node.getAttribute !== 'function') return true
-        const classNames = node.getAttribute('class')?.split(/\s+/) ?? []
-        return !classNames.includes('react-flow__controls') &&
-          !classNames.includes('react-flow__minimap') &&
-          !classNames.includes('react-flow__attribution')
-      },
-    })
+    const cleanupEdgeOverlay = createExportEdgeOverlay(graphRef.current)
+    try {
+      return await toPng(graphRef.current, {
+        backgroundColor: '#f7f7fb',
+        cacheBust: true,
+        pixelRatio: 2,
+        filter: (node) => {
+          if (!node || typeof node.getAttribute !== 'function') return true
+          const classNames = node.getAttribute('class')?.split(/\s+/) ?? []
+          return !classNames.includes('react-flow__controls') &&
+            !classNames.includes('react-flow__minimap') &&
+            !classNames.includes('react-flow__attribution')
+        },
+      })
+    } finally {
+      cleanupEdgeOverlay()
+    }
   }
 
   const downloadDataUrl = (dataUrl: string, filename: string) => {
