@@ -824,10 +824,11 @@ function App() {
       cacheBust: true,
       pixelRatio: 2,
       filter: (node) => {
-        const className = node.classList
-        return !className.contains('react-flow__controls') &&
-          !className.contains('react-flow__minimap') &&
-          !className.contains('react-flow__attribution')
+        if (!node || typeof node.getAttribute !== 'function') return true
+        const classNames = node.getAttribute('class')?.split(/\s+/) ?? []
+        return !classNames.includes('react-flow__controls') &&
+          !classNames.includes('react-flow__minimap') &&
+          !classNames.includes('react-flow__attribution')
       },
     })
   }
