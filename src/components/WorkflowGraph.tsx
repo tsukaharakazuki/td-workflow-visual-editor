@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type RefObject } from 'react'
 import dagre from '@dagrejs/dagre'
 import {
   Background,
@@ -26,6 +26,7 @@ interface WorkflowGraphProps {
   selectedTaskId?: string
   onSelectTask: (taskId: string) => void
   onDropOperator: (operator: string) => void
+  canvasRef?: RefObject<HTMLDivElement | null>
 }
 
 const NODE_WIDTH = 220
@@ -296,6 +297,7 @@ export function WorkflowGraph({
   selectedTaskId,
   onSelectTask,
   onDropOperator,
+  canvasRef,
 }: WorkflowGraphProps) {
   const elements = useMemo(
     () => mode === 'pipeline'
@@ -309,6 +311,7 @@ export function WorkflowGraph({
   if (elements.nodes.length === 0) {
     return (
       <div
+        ref={canvasRef}
         className="graph-empty"
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
@@ -326,6 +329,7 @@ export function WorkflowGraph({
 
   return (
     <div
+      ref={canvasRef}
       className="graph-canvas"
       onDragOver={(event) => {
         if (event.dataTransfer.types.includes('application/x-workflow-operator')) {

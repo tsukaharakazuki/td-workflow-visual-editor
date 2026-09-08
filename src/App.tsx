@@ -27,6 +27,7 @@ import {
   Download,
   FileArchive,
   FileCode2,
+  FileDown,
   FileJson2,
   FileText,
   FolderOpen,
@@ -34,6 +35,7 @@ import {
   GitBranch,
   GitFork,
   GripVertical,
+  ImageDown,
   Info,
   Layers3,
   ListTree,
@@ -55,6 +57,8 @@ import {
   Upload,
   X,
 } from 'lucide-react'
+import { toPng } from 'html-to-image'
+import { jsPDF } from 'jspdf'
 import {
   addSiblingTask,
   analyzeWorkflow,
@@ -607,6 +611,7 @@ function App() {
   const [redoStack, setRedoStack] = useState<WorkflowArchive[]>([])
   const [toast, setToast] = useState<ToastState>()
   const importInputRef = useRef<HTMLInputElement>(null)
+  const graphRef = useRef<HTMLDivElement>(null)
 
   const analysis = useMemo<WorkflowAnalysis | undefined>(() => archive ? analyzeWorkflow(archive) : undefined, [archive])
   const documents = useMemo(() => analysis?.documents ?? [], [analysis])
@@ -810,6 +815,73 @@ function App() {
     downloadBytes(new TextEncoder().encode(payload), `${projectName}-lineage.json`, 'application/json')
   }
 
+  const graphExportLabel = view === 'pipeline' ? 'task-flow' : view === 'combined' ? 'task-data-flow' : 'table-lineage'
+
+  const captureGraphImage = async (): Promise<string> => {
+    if (!graphRef.current) throw new Error('グラフが表示されていません')
+    return toPng(graphRef.current, {
+      backgroundColor: '#f7f7fb',
+      cacheBust: true,
+      pixelRatio: 2,
+      filter: (node) => {
+        const className = node.classList
+        return !className.contains('react-flow__controls') &&
+          !className.contains('react-flow__minimap') &&
+          !className.contains('react-flow__attribution')
+      },
+    })
+  }
+
+  const downloadDataUrl = (dataUrl: string, filename: string) => {
+    const anchor = document.createElement('a')
+    anchor.href = dataUrl
+    anchor.download = filename
+    anchor.click()
+  }
+
+  const imageDimensions = (dataUrl: string): Promise<{ width: number; height: number }> => new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+    image.onerror = () => reject(new Error('画像サイズを取得できませんでした'))
+    image.src = dataUrl
+  })
+
+  const downloadGraphPng = async () => {
+    try {
+      const dataUrl = await captureGraphImage()
+      downloadDataUrl(dataUrl, `${projectName}-${graphExportLabel}.png`)
+      setToast({ type: 'success', message: 'グラフをPNG画像で出力しました' })
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : 'PNG出力に失敗しました' })
+    }
+  }
+
+  const downloadGraphPdf = async () => {
+    try {
+      const dataUrl = await captureGraphImage()
+      const dimensions = await imageDimensions(dataUrl)
+      const pdf = new jsPDF({
+        orientation: dimensions.width >= dimensions.height ? 'landscape' : 'portrait',
+        unit: 'pt',
+        format: 'a4',
+      })
+      const margin = 24
+      const titleHeight = 20
+      const pageWidth = pdf.internal.pageSize.getWidth() - margin * 2
+      const pageHeight = pdf.internal.pageSize.getHeight() - margin * 2 - titleHeight
+      const scale = Math.min(pageWidth / dimensions.width, pageHeight / dimensions.height)
+      const width = dimensions.width * scale
+      const height = dimensions.height * scale
+      pdf.setFontSize(12)
+      pdf.text(`${projectName} — ${graphExportLabel}`, margin, margin + 12)
+      pdf.addImage(dataUrl, 'PNG', margin + (pageWidth - width) / 2, margin + titleHeight, width, height)
+      pdf.save(`${projectName}-${graphExportLabel}.pdf`)
+      setToast({ type: 'success', message: 'グラフをPDFで出力しました' })
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : 'PDF出力に失敗しました' })
+    }
+  }
+
   const copyStudioPrompt = async () => {
     try {
       await navigator.clipboard.writeText(STUDIO_PROMPT)
@@ -858,6 +930,10 @@ function App() {
             <div className="history-actions"><button className="icon-button" type="button" title="Undo" disabled={undoStack.length === 0} onClick={undo}><Undo2 size={17} /></button><button className="icon-button" type="button" title="Redo" disabled={redoStack.length === 0} onClick={redo}><Redo2 size={17} /></button></div>
             <button className="secondary-button" type="button" onClick={() => importInputRef.current?.click()}><Upload size={16} /> 別のZIP</button>
             {(view === 'combined' || view === 'lineage') && <button className="secondary-button" type="button" onClick={downloadLineage}><ArrowDownToLine size={16} /> Lineage JSON</button>}
+            {(view === 'pipeline' || view === 'combined' || view === 'lineage') && <>
+              <button className="secondary-button" type="button" onClick={downloadGraphPng}><ImageDown size={16} /> PNG</button>
+              <button className="secondary-button" type="button" onClick={downloadGraphPdf}><FileDown size={16} /> PDF</button>
+            </>}
             <button className="primary-button" type="button" onClick={downloadProject}><Download size={16} /> Project ZIP</button>
             <input ref={importInputRef} className="visually-hidden" type="file" accept=".zip,application/zip" onChange={(event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) loadZip(file, file.name) }} />
           </div>
@@ -886,7 +962,7 @@ function App() {
                 <span className="graph-legend">{view === 'lineage' ? <><i className="data" /> Data flow</> : <><i className="query" /> Query <i className="control" /> Control {view === 'combined' && <><i className="data" /> Data flow</>}</>}</span>
               </div>
               <div className="graph-and-inspector">
-                <WorkflowGraph mode={view === 'pipeline' ? 'pipeline' : view === 'combined' ? 'combined' : 'lineage'} analysis={analysis} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelectTask={setSelectedTaskId} onDropOperator={addOperator} />
+                <WorkflowGraph mode={view === 'pipeline' ? 'pipeline' : view === 'combined' ? 'combined' : 'lineage'} analysis={analysis} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelectTask={setSelectedTaskId} onDropOperator={addOperator} canvasRef={graphRef} />
                 {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} />}
                 {(view === 'combined' || view === 'lineage') && (
                   <aside className="lineage-summary-panel">
