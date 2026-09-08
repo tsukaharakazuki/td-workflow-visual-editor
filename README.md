@@ -4,6 +4,10 @@ Treasure Workflow の構成を、ブラウザだけで確認するための clie
 
 Treasure Data へ接続するバックエンドはこのアプリにはありません。Workflow の取得やテーブル定義の確認が必要な場合は、手元の `tdx` または Treasure AI Studio で読み取り専用に準備し、秘密情報を除いた ZIP をブラウザへ渡してください。
 
+## 公開版
+
+[Workflow Visual Editor を開く](https://tsukaharakazuki.github.io/td-workflow-visual-editor/#/)
+
 ## ユーザー要件（5つ）
 
 1. **Task Flow tabs** — 「タスクの流れ」ではタスク構造だけを、「タスク＋データの流れ」ではタスクとデータの流れを同じ画面で可視化します。従来の「テーブルリネージ」ではテーブル間のデータリネージだけを表示できます。
