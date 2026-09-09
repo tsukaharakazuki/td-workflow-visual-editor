@@ -160,10 +160,10 @@ function layoutGraph(
   const graph = new dagre.graphlib.Graph()
   graph.setGraph({
     rankdir: direction,
-    ranksep: direction === 'TB' ? 56 : 90,
-    nodesep: direction === 'TB' ? 30 : 36,
-    marginx: 28,
-    marginy: 28,
+    nodesep: direction === 'TB' ? 44 : 96,
+    ranksep: direction === 'TB' ? 72 : 160,
+    marginx: 44,
+    marginy: 44,
   })
   graph.setDefaultEdgeLabel(() => ({}))
   const dimensions = new Map<string, GraphNodeSize>()
@@ -286,7 +286,7 @@ function combinedElements(
       id: key,
       source,
       target,
-      type: 'smoothstep',
+      type: 'default',
       label,
       className: 'workflow-edge edge-data',
       markerEnd: { type: MarkerType.ArrowClosed, width: 17, height: 17 },
@@ -337,7 +337,7 @@ function lineageElements(analysis: WorkflowAnalysis, selectedDataNodeId: string 
     source: `table:${record.source.qualifiedName}`,
     target: `table:${record.target.qualifiedName}`,
     label: record.taskId ? taskById.get(record.taskId)?.name.replace(/^\+/, '') : undefined,
-    type: 'smoothstep',
+    type: 'default',
     className: `lineage-edge confidence-${record.confidence}`,
     markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
   }))

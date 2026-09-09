@@ -1429,6 +1429,8 @@ button:disabled {
 .react-flow__edge-path {
   stroke: #96a4b4;
   stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .react-flow__edge.edge-data .react-flow__edge-path,
