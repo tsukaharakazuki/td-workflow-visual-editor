@@ -44,6 +44,8 @@ import {
   Mail,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Redo2,
   Repeat2,
   Search,
@@ -681,8 +683,10 @@ function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string>()
   const [selectedFilePath, setSelectedFilePath] = useState<string>()
   const [fileDraft, setFileDraft] = useState('')
+  const [graphQuery, setGraphQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [lineageSummaryOpen, setLineageSummaryOpen] = useState(false)
   const [undoStack, setUndoStack] = useState<WorkflowArchive[]>([])
   const [redoStack, setRedoStack] = useState<WorkflowArchive[]>([])
   const [toast, setToast] = useState<ToastState>()
@@ -722,6 +726,8 @@ function App() {
       setSelectedWorkflowPath(loadedAnalysis.documents[0]?.path)
       setSelectedTaskId(loadedAnalysis.documents[0]?.tasks[0]?.id)
       setSelectedFilePath(undefined)
+      setGraphQuery('')
+      setLineageSummaryOpen(false)
       setUndoStack([])
       setRedoStack([])
       setView('pipeline')
@@ -1003,18 +1009,21 @@ function App() {
             <button className="icon-button" type="button" onClick={() => setSidebarCollapsed((value) => !value)} title="サイドバー切替">
               {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
             </button>
-            <div className="project-identity"><p>{view === 'pipeline' ? 'Task Flow' : view === 'combined' ? 'Task + Data Flow' : view === 'lineage' ? 'Data Lineage' : view === 'files' ? 'Project Files' : view === 'diagnostics' ? 'Diagnostics' : 'Import Guide'}</p><h1>{projectName}</h1></div>
+            <div className="project-identity">
+              <p><span className="project-identity-context">Workflow Catalog</span><i>/</i>{view === 'pipeline' ? 'Task Flow' : view === 'combined' ? 'Task + Data Flow' : view === 'lineage' ? 'Data Lineage' : view === 'files' ? 'Project Files' : view === 'diagnostics' ? 'Diagnostics' : 'Import Guide'}</p>
+              <h1>{projectName}</h1>
+            </div>
             {(view === 'pipeline' || view === 'combined' || view === 'lineage') && documents.length > 0 && (
               <label className="workflow-select"><GitFork size={14} /><select value={selectedDocument?.path} onChange={(event) => { setSelectedWorkflowPath(event.target.value); setSelectedTaskId(undefined) }}>{documents.map((document) => <option key={document.path} value={document.path}>{document.path}</option>)}</select><ChevronDown size={13} /></label>
             )}
           </div>
           <div className="header-actions">
             <div className="history-actions"><button className="icon-button" type="button" title="Undo" disabled={undoStack.length === 0} onClick={undo}><Undo2 size={17} /></button><button className="icon-button" type="button" title="Redo" disabled={redoStack.length === 0} onClick={redo}><Redo2 size={17} /></button></div>
-            <button className="secondary-button" type="button" onClick={() => importInputRef.current?.click()}><Upload size={16} /> 別のZIP</button>
-            {(view === 'combined' || view === 'lineage') && <button className="secondary-button" type="button" onClick={downloadLineage}><ArrowDownToLine size={16} /> Lineage JSON</button>}
+            <button className="secondary-button" type="button" title="別のWorkflow ZIPを読み込む" aria-label="別のWorkflow ZIPを読み込む" onClick={() => importInputRef.current?.click()}><Upload size={16} /> 別のZIP</button>
+            {(view === 'combined' || view === 'lineage') && <button className="secondary-button" type="button" title="Lineage JSONを出力" aria-label="Lineage JSONを出力" onClick={downloadLineage}><ArrowDownToLine size={16} /> Lineage JSON</button>}
             {(view === 'pipeline' || view === 'combined' || view === 'lineage') && <>
-              <button className="secondary-button" type="button" onClick={downloadGraphPng}><ImageDown size={16} /> PNG</button>
-              <button className="secondary-button" type="button" onClick={downloadGraphPdf}><FileDown size={16} /> PDF</button>
+              <button className="secondary-button" type="button" title="グラフをPNGで出力" aria-label="グラフをPNGで出力" onClick={downloadGraphPng}><ImageDown size={16} /> PNG</button>
+              <button className="secondary-button" type="button" title="グラフをPDFで出力" aria-label="グラフをPDFで出力" onClick={downloadGraphPdf}><FileDown size={16} /> PDF</button>
             </>}
             <button className="primary-button" type="button" onClick={downloadProject}><Download size={16} /> Project ZIP</button>
             <input ref={importInputRef} className="visually-hidden" type="file" accept=".zip,application/zip" onChange={(event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) loadZip(file, file.name) }} />
@@ -1028,25 +1037,33 @@ function App() {
           <span>{analysis.tasks.length} tasks</span><i />
           <span>{analysis.tableLineage.length} lineage edges</span>
           <div className="status-spacer" />
-          <span className={diagnostics.some((item) => item.severity === 'error') ? 'status-error' : 'status-ok'}>{diagnostics.some((item) => item.severity === 'error') ? <AlertTriangle size={13} /> : <Check size={13} />}{diagnostics.some((item) => item.severity === 'error') ? 'Review needed' : 'Parsed successfully'}</span>
+          <span className={diagnostics.some((item) => item.severity !== 'info') ? 'status-error' : 'status-ok'}>{diagnostics.some((item) => item.severity !== 'info') ? <AlertTriangle size={13} /> : <Check size={13} />}{diagnostics.some((item) => item.severity !== 'info') ? 'Review needed' : 'Parsed successfully'}</span>
+
         </div>
 
         <section className="workspace-content">
           {(view === 'pipeline' || view === 'combined' || view === 'lineage') && (
             <div className="graph-workspace">
+              <div className="graph-filter-strip" aria-label="Catalog filters">
+                {['Data Assets', 'Domains', 'Tier', 'Tags', 'Certification', 'Service', 'Service Type'].map((filter) => (
+                  <span className="graph-filter-chip" key={filter}>{filter}<ChevronDown size={12} /></span>
+                ))}
+              </div>
               <div className="graph-toolbar">
                 <div className="graph-view-tabs" role="tablist" aria-label="Workflow visualization mode">
                   <button type="button" role="tab" aria-selected={view === 'pipeline'} className={view === 'pipeline' ? 'active' : ''} onClick={() => setView('pipeline')}><ListTree size={15} /> タスクの流れ</button>
                   <button type="button" role="tab" aria-selected={view === 'combined'} className={view === 'combined' ? 'active' : ''} onClick={() => setView('combined')}><GitFork size={15} /> タスク＋データの流れ</button>
                   <button type="button" role="tab" aria-selected={view === 'lineage'} className={view === 'lineage' ? 'active' : ''} onClick={() => setView('lineage')}><TableProperties size={15} /> テーブルリネージ</button>
                 </div>
-                <p>{view === 'pipeline' ? 'タスクの流れだけを表示。左のTaskをドラッグして並べ替え、Operatorを追加できます。' : view === 'combined' ? 'タスクの流れと、SQLの入力・出力テーブルを一緒に表示。' : 'テーブル間のデータリネージだけを表示。タスクノードは表示しません。'}</p>
+                <label className="graph-search"><Search size={14} /><input value={graphQuery} onChange={(event) => setGraphQuery(event.target.value)} placeholder="ノード・テーブル・カラムを検索" aria-label="グラフを検索" />{graphQuery && <button type="button" aria-label="検索をクリア" onClick={() => setGraphQuery('')}><X size={12} /></button>}</label>
+                {(view === 'combined' || view === 'lineage') && <button className={`lineage-summary-toggle ${lineageSummaryOpen ? 'active' : ''}`} type="button" aria-pressed={lineageSummaryOpen} onClick={() => setLineageSummaryOpen((current) => !current)}>{lineageSummaryOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />} Summary</button>}
+                <p>{view === 'pipeline' ? `${selectedDocument?.tasks.length ?? 0} tasks` : `${analysis.tableLineage.length} lineage connections`}</p>
                 <span className="graph-legend">{view === 'lineage' ? <><i className="data" /> Data flow</> : <><i className="query" /> Query <i className="control" /> Control {view === 'combined' && <><i className="data" /> Data flow</>}</>}</span>
               </div>
-              <div className="graph-and-inspector">
-                <WorkflowGraph mode={view === 'pipeline' ? 'pipeline' : view === 'combined' ? 'combined' : 'lineage'} analysis={analysis} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelectTask={setSelectedTaskId} onDropOperator={addOperator} canvasRef={graphRef} />
+              <div className={`graph-and-inspector ${(view === 'combined' || view === 'lineage') && !lineageSummaryOpen ? 'graph-full-width' : ''}`}>
+                <WorkflowGraph mode={view === 'pipeline' ? 'pipeline' : view === 'combined' ? 'combined' : 'lineage'} analysis={analysis} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelectTask={setSelectedTaskId} onDropOperator={addOperator} canvasRef={graphRef} searchQuery={graphQuery} />
                 {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} />}
-                {(view === 'combined' || view === 'lineage') && (
+                {(view === 'combined' || view === 'lineage') && lineageSummaryOpen && (
                   <aside className="lineage-summary-panel">
                     <div className="lineage-summary-header"><Database size={18} /><div><p>Lineage summary</p><h2>{analysis.tableLineage.length} connections</h2></div></div>
                     <div className="lineage-metrics"><div><strong>{new Set(analysis.tableLineage.map((item) => item.source.qualifiedName)).size}</strong><small>Source tables</small></div><div><strong>{new Set(analysis.tableLineage.map((item) => item.target.qualifiedName)).size}</strong><small>Output tables</small></div><div><strong>{analysis.columnLineage.length}</strong><small>Column mappings</small></div></div>
