@@ -1175,9 +1175,10 @@ button:disabled {
 
 /* Graph workspace */
 .graph-workspace {
-  display: grid;
-  grid-template-rows: 38px 43px minmax(0, 1fr);
+  display: flex;
+  min-height: 0;
   height: 100%;
+  flex-direction: column;
 }
 
 .graph-filter-strip {
@@ -1185,6 +1186,8 @@ button:disabled {
   z-index: 20;
   display: flex;
   min-width: 0;
+  min-height: 38px;
+  flex: none;
   padding: 5px 14px;
   align-items: center;
   flex-wrap: wrap;
@@ -1213,6 +1216,8 @@ button:disabled {
 .graph-toolbar {
   display: flex;
   min-width: 0;
+  min-height: 43px;
+  flex: none;
   padding: 0 14px;
   align-items: center;
   gap: 14px;
@@ -1282,6 +1287,7 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) 356px;
   min-width: 0;
   min-height: 0;
+  flex: 1;
 }
 
 .graph-and-inspector.graph-full-width {
