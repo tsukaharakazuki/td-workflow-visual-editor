@@ -107,6 +107,19 @@ describe('Digdag parsing and editing', () => {
     const reversed = reorderSiblingTasks(deleted.document, [...roots].reverse())
     expect(reversed.document.rootTaskIds).toEqual([...roots].reverse())
     expect(reversed.after.text).not.toBe(deleted.after.text)
+    expect(() => reorderSiblingTasks(deleted.document, [roots[0], roots[0], roots[2]])).toThrow(/duplicate/i)
+  })
+})
+
+describe('lineage diagnostics', () => {
+  it('does not treat aggregate function names as source columns', () => {
+    const analysis = analyzeSql('SELECT COUNT(*) AS event_count, MAX(e.event_time) AS last_event_time FROM analytics.events e')
+    expect(analysis.outputColumns.map((column) => column.name)).toEqual(['event_count', 'last_event_time'])
+  })
+
+  it('flags unbalanced SQL structure', () => {
+    const analysis = analyzeSql('SELECT (event_id FROM analytics.events')
+    expect(analysis.diagnostics.some((diagnostic) => diagnostic.code === 'sql-unbalanced-parentheses')).toBe(true)
   })
 })
 

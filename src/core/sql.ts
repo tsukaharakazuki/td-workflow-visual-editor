@@ -352,6 +352,27 @@ export function analyzeSql(
   }
 
   const diagnostics: Diagnostic[] = []
+  let parenthesisDepth = 0
+  for (const character of masked) {
+    if (character === '(') parenthesisDepth += 1
+    if (character === ')') parenthesisDepth -= 1
+    if (parenthesisDepth < 0) {
+      diagnostics.push({
+        severity: 'warning',
+        code: 'sql-unbalanced-parentheses',
+        message: 'SQL contains a closing parenthesis without a matching opening parenthesis',
+      })
+      parenthesisDepth = 0
+      break
+    }
+  }
+  if (parenthesisDepth > 0) {
+    diagnostics.push({
+      severity: 'warning',
+      code: 'sql-unbalanced-parentheses',
+      message: 'SQL contains unbalanced parentheses; lineage may be incomplete',
+    })
+  }
   if (sql.trim() && sources.length === 0 && targets.length === 0 && !/\b(select|with)\b/i.test(masked)) {
     diagnostics.push({
       severity: 'info',

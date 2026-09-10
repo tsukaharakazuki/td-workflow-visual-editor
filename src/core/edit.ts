@@ -156,6 +156,10 @@ function reorderTasksInternal(original: DigdagDocument, taskIds: readonly string
     .filter((task) => task.parentId === parent)
     .sort((left, right) => left.order - right.order)
     .map((task) => task.id)
+  const uniqueTaskIds = new Set(taskIds)
+  if (uniqueTaskIds.size !== taskIds.length) {
+    throw new DigdagEditError('duplicate-order', 'Reorder cannot contain duplicate task IDs')
+  }
   if (taskIds.length !== allSiblingIds.length || taskIds.some((id) => !allSiblingIds.includes(id))) {
     throw new DigdagEditError('incomplete-order', 'Reorder must include every sibling task')
   }
