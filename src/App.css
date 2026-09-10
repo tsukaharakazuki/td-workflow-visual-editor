@@ -3436,3 +3436,16 @@ button:disabled {
   .guide-hero { align-items: flex-start; flex-direction: column; }
   .guide-grid { grid-template-columns: 1fr; }
 }
+
+/* Cards expose connection anchors on all four sides. The dots themselves stay
+   invisible so only the routed arrows read on the canvas. */
+.react-flow__handle.graph-anchor {
+  width: 8px;
+  height: 8px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}

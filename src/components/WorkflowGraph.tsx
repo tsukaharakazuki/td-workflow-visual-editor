@@ -1,14 +1,16 @@
-import { useMemo, useState, type RefObject } from 'react'
+import { Fragment, useMemo, useState, type ReactNode, type RefObject } from 'react'
 import dagre from '@dagrejs/dagre'
 import {
   Background,
   Controls,
+  Handle,
   MarkerType,
   MiniMap,
   Position,
   ReactFlow,
   type Edge,
   type Node,
+  type NodeProps,
 } from '@xyflow/react'
 import { Braces, ChevronDown, Database, EllipsisVertical, GitBranch, Layers3, Network, Repeat2, Search, Table2 } from 'lucide-react'
 import type {
@@ -35,6 +37,35 @@ const NODE_WIDTH = 260
 const NODE_HEIGHT = 112
 const TABLE_WIDTH = 310
 const TABLE_HEIGHT = 274
+/** Horizontal gap between sibling subtrees laid out left to right. */
+const COLUMN_GAP = 88
+/** Vertical gap between depth bands. Child tasks sit one band below the parent. */
+const ROW_GAP = 108
+/** Gap between a task card and the table cards attached to its sides. */
+const TABLE_GAP = 64
+/** Vertical gap between table cards stacked on the same side of a task. */
+const TABLE_STACK_GAP = 30
+const CANVAS_MARGIN = 48
+
+/** Every card exposes source and target handles on all four sides. */
+const ANCHOR_SIDES = [Position.Top, Position.Right, Position.Bottom, Position.Left] as const
+
+function AnchoredNode({ data }: NodeProps) {
+  const label = (data as { label?: ReactNode }).label
+  return (
+    <>
+      {ANCHOR_SIDES.map((side) => (
+        <Fragment key={side}>
+          <Handle className="graph-anchor" id={`${side}-target`} type="target" position={side} isConnectable={false} />
+          <Handle className="graph-anchor" id={`${side}-source`} type="source" position={side} isConnectable={false} />
+        </Fragment>
+      ))}
+      {label}
+    </>
+  )
+}
+
+const nodeTypes = { anchored: AnchoredNode }
 
 function operatorLabel(task: DigdagTaskNode): string {
   if (task.operator === '_parallel') return 'Parallel group'
@@ -140,6 +171,11 @@ interface GraphNodeSize {
   height: number
 }
 
+interface GraphRect extends GraphNodeSize {
+  x: number
+  y: number
+}
+
 function searchClass(value: string, query: string): string {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return ''
@@ -189,6 +225,186 @@ function layoutGraph(
   })
 }
 
+interface SubtreeMeasure {
+  /** Width of the whole subtree, including the tables attached to each task. */
+  width: number
+  /** Offset of the task card itself inside the subtree. */
+  taskOffset: number
+  /** Offset of the task's own row (tables + card) inside the subtree. */
+  ownOffset: number
+  /** Offset of the children row inside the subtree. */
+  childrenOffset: number
+  /** Offset of each child subtree inside the children row. */
+  childOffsets: number[]
+  /** Height of the task's own row, tables included. */
+  height: number
+  leftWidth: number
+}
+
+interface HierarchyInput {
+  tasks: readonly DigdagTaskNode[]
+  rootIds: readonly string[]
+  inputTables: Map<string, string[]>
+  outputTables: Map<string, string[]>
+}
+
+function stackHeight(count: number): number {
+  return count === 0 ? 0 : count * TABLE_HEIGHT + (count - 1) * TABLE_STACK_GAP
+}
+
+/**
+ * Lays the task tree out as a left-to-right flow: siblings run rightwards from
+ * the left-hand origin, and every child task sits in the band directly below
+ * its parent card. Tables attached to a task are placed inline — inputs to the
+ * left of the card, outputs to the right — so data reads left to right too.
+ */
+function hierarchicalLayout({ tasks, rootIds, inputTables, outputTables }: HierarchyInput): Map<string, GraphRect> {
+  const rects = new Map<string, GraphRect>()
+  const byId = new Map(tasks.map((task) => [task.id, task]))
+  if (byId.size === 0) return rects
+
+  const childIdsOf = (id: string): string[] => (byId.get(id)?.children ?? [])
+    .filter((childId) => byId.has(childId))
+    .sort((left, right) => (byId.get(left)?.order ?? 0) - (byId.get(right)?.order ?? 0))
+
+  const measures = new Map<string, SubtreeMeasure>()
+  const measure = (id: string): SubtreeMeasure => {
+    const cached = measures.get(id)
+    if (cached) return cached
+    const inputs = inputTables.get(id)?.length ?? 0
+    const outputs = outputTables.get(id)?.length ?? 0
+    const leftWidth = inputs > 0 ? TABLE_WIDTH + TABLE_GAP : 0
+    const rightWidth = outputs > 0 ? TABLE_WIDTH + TABLE_GAP : 0
+    const ownWidth = leftWidth + NODE_WIDTH + rightWidth
+    const height = Math.max(NODE_HEIGHT, stackHeight(inputs), stackHeight(outputs))
+
+    const childMeasures = childIdsOf(id).map((childId) => measure(childId))
+    const childOffsets: number[] = []
+    let childrenRowWidth = 0
+    childMeasures.forEach((child, index) => {
+      if (index > 0) childrenRowWidth += COLUMN_GAP
+      childOffsets.push(childrenRowWidth)
+      childrenRowWidth += child.width
+    })
+
+    // Align the parent card with its first child so the containment arrow drops
+    // straight down instead of skewing across the band.
+    let ownOffset = 0
+    let childrenOffset = 0
+    if (childMeasures.length > 0) {
+      const delta = leftWidth - (childOffsets[0] + childMeasures[0].taskOffset)
+      if (delta >= 0) childrenOffset = delta
+      else ownOffset = -delta
+    }
+
+    const result: SubtreeMeasure = {
+      width: Math.max(ownOffset + ownWidth, childrenOffset + childrenRowWidth),
+      taskOffset: ownOffset + leftWidth,
+      ownOffset,
+      childrenOffset,
+      childOffsets,
+      height,
+      leftWidth,
+    }
+    measures.set(id, result)
+    return result
+  }
+
+  const roots = rootIds.filter((id) => byId.has(id))
+  const effectiveRoots = roots.length > 0
+    ? roots
+    : tasks.filter((task) => !task.parentId || !byId.has(task.parentId)).map((task) => task.id)
+
+  const rowHeights: number[] = []
+  const collectRow = (id: string, depth: number) => {
+    rowHeights[depth] = Math.max(rowHeights[depth] ?? 0, measure(id).height)
+    childIdsOf(id).forEach((childId) => collectRow(childId, depth + 1))
+  }
+  effectiveRoots.forEach((id) => collectRow(id, 0))
+
+  const rowY: number[] = []
+  rowHeights.forEach((_, depth) => {
+    rowY[depth] = depth === 0 ? CANVAS_MARGIN : rowY[depth - 1] + rowHeights[depth - 1] + ROW_GAP
+  })
+
+  const place = (id: string, originX: number, depth: number) => {
+    const item = measure(id)
+    const bandCenter = rowY[depth] + rowHeights[depth] / 2
+    const taskX = originX + item.taskOffset
+    rects.set(id, { x: taskX, y: bandCenter - NODE_HEIGHT / 2, width: NODE_WIDTH, height: NODE_HEIGHT })
+
+    const placeStack = (tableIds: readonly string[], x: number) => {
+      let y = bandCenter - stackHeight(tableIds.length) / 2
+      tableIds.forEach((tableId) => {
+        rects.set(tableId, { x, y, width: TABLE_WIDTH, height: TABLE_HEIGHT })
+        y += TABLE_HEIGHT + TABLE_STACK_GAP
+      })
+    }
+    const inputs = inputTables.get(id) ?? []
+    const outputs = outputTables.get(id) ?? []
+    if (inputs.length > 0) placeStack(inputs, originX + item.ownOffset)
+    if (outputs.length > 0) placeStack(outputs, taskX + NODE_WIDTH + TABLE_GAP)
+
+    childIdsOf(id).forEach((childId, index) => {
+      place(childId, originX + item.childrenOffset + item.childOffsets[index], depth + 1)
+    })
+  }
+
+  let cursor = CANVAS_MARGIN
+  effectiveRoots.forEach((id) => {
+    place(id, cursor, 0)
+    cursor += measure(id).width + COLUMN_GAP
+  })
+
+  return rects
+}
+
+function applyRects(nodes: Node[], rects: Map<string, GraphRect>): Node[] {
+  return nodes.map((node) => {
+    const rect = rects.get(node.id)
+    return rect ? { ...node, position: { x: rect.x, y: rect.y } } : node
+  })
+}
+
+function nodeRects(nodes: Node[]): Map<string, GraphRect> {
+  const rects = new Map<string, GraphRect>()
+  nodes.forEach((node) => {
+    const width = Number(node.style?.width ?? NODE_WIDTH)
+    const height = Number(node.style?.minHeight ?? node.style?.height ?? NODE_HEIGHT)
+    rects.set(node.id, { x: node.position.x, y: node.position.y, width, height })
+  })
+  return rects
+}
+
+/**
+ * Picks which of the four sides an edge leaves and enters. Containment edges
+ * always drop out of the bottom of the parent so the hierarchy reads downwards.
+ */
+function anchorSides(source: GraphRect, target: GraphRect, forceVertical: boolean): { source: Position; target: Position } {
+  const dx = (target.x + target.width / 2) - (source.x + source.width / 2)
+  const dy = (target.y + target.height / 2) - (source.y + source.height / 2)
+  if (forceVertical || Math.abs(dy) > Math.abs(dx)) {
+    return dy >= 0
+      ? { source: Position.Bottom, target: Position.Top }
+      : { source: Position.Top, target: Position.Bottom }
+  }
+  return dx >= 0
+    ? { source: Position.Right, target: Position.Left }
+    : { source: Position.Left, target: Position.Right }
+}
+
+function assignEdgeAnchors(nodes: Node[], edges: Edge[]): Edge[] {
+  const rects = nodeRects(nodes)
+  return edges.map((edge) => {
+    const source = rects.get(edge.source)
+    const target = rects.get(edge.target)
+    if (!source || !target) return edge
+    const forceVertical = typeof edge.className === 'string' && edge.className.includes('edge-contains')
+    const sides = anchorSides(source, target, forceVertical)
+    return { ...edge, sourceHandle: `${sides.source}-source`, targetHandle: `${sides.target}-target` }
+  })
+}
+
 function taskElements(
   analysis: WorkflowAnalysis,
   document: DigdagDocument | undefined,
@@ -199,6 +415,7 @@ function taskElements(
   const ids = new Set(document.tasks.map((task) => task.id))
   const nodes: Node[] = document.tasks.map((task) => ({
     id: task.id,
+    type: 'anchored',
     position: { x: 0, y: 0 },
     data: { label: taskLabel(task) },
     className: `workflow-node tone-${operatorTone(task.operator)}${selectedTaskId === task.id ? ' is-selected' : ''}${searchClass(`${task.name} ${operatorLabel(task)} ${task.documentPath} ${task.database ?? ''}`, searchQuery)}`,
@@ -215,7 +432,7 @@ function taskElements(
       id: key,
       source,
       target,
-      type: kind === 'sequence' ? 'smoothstep' : 'default',
+      type: kind === 'sequence' || kind === 'contains' ? 'smoothstep' : 'default',
       label,
       className: `workflow-edge edge-${kind}`,
       markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
@@ -240,7 +457,15 @@ function pipelineElements(
   searchQuery: string,
 ): { nodes: Node[]; edges: Edge[] } {
   const elements = taskElements(analysis, document, selectedTaskId, searchQuery)
-  return { ...elements, nodes: layoutGraph(elements.nodes, elements.edges, { width: NODE_WIDTH, height: NODE_HEIGHT }, 'TB') }
+  if (!document) return elements
+  const rects = hierarchicalLayout({
+    tasks: document.tasks,
+    rootIds: document.rootTaskIds,
+    inputTables: new Map(),
+    outputTables: new Map(),
+  })
+  const nodes = applyRects(elements.nodes, rects)
+  return { nodes, edges: assignEdgeAnchors(nodes, elements.edges) }
 }
 
 function combinedElements(
@@ -262,16 +487,28 @@ function combinedElements(
     return `table:${key}`
   }
 
+  // Each table card is anchored to one task: the task that writes it when there
+  // is one, otherwise the first task that reads it.
+  const outputTables = new Map<string, string[]>()
+  const inputTables = new Map<string, string[]>()
+  const owner = new Map<string, string>()
+  const attach = (target: Map<string, string[]>, taskId: string, tableId: string) => {
+    if (owner.has(tableId)) return
+    owner.set(tableId, taskId)
+    target.set(taskId, [...(target.get(taskId) ?? []), tableId])
+  }
+
   taskAnalyses.forEach((item) => {
-    item.sql?.sources.forEach((source) => tableIdFor(source.qualifiedName))
-    item.sql?.targets.forEach((target) => tableIdFor(target.qualifiedName))
+    item.sql?.targets.forEach((target) => attach(outputTables, item.task.id, tableIdFor(target.qualifiedName)))
+  })
+  taskAnalyses.forEach((item) => {
+    item.sql?.sources.forEach((source) => attach(inputTables, item.task.id, tableIdFor(source.qualifiedName)))
   })
 
   const tableNodes: Node[] = [...tableNames.entries()].map(([key, name]) => ({
     id: `table:${key}`,
+    type: 'anchored',
     position: { x: 0, y: 0 },
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left,
     data: { label: <TableLabel name={name} analysis={analysis} /> },
     className: `lineage-table-node workflow-data-node${selectedDataNodeId === `table:${key}` ? ' is-selected' : ''}${searchClass(tableSearchValue(name, analysis), searchQuery)}`,
     style: { width: TABLE_WIDTH, minHeight: TABLE_HEIGHT },
@@ -302,18 +539,14 @@ function combinedElements(
     })
   })
 
-  const nodes = [...taskGraph.nodes, ...tableNodes]
-  return {
-    nodes: layoutGraph(
-      nodes,
-      edges,
-      (node) => node.id.startsWith('table:')
-        ? { width: TABLE_WIDTH, height: TABLE_HEIGHT }
-        : { width: NODE_WIDTH, height: NODE_HEIGHT },
-      'TB',
-    ),
-    edges,
-  }
+  const rects = hierarchicalLayout({
+    tasks: document.tasks,
+    rootIds: document.rootTaskIds,
+    inputTables,
+    outputTables,
+  })
+  const nodes = applyRects([...taskGraph.nodes, ...tableNodes], rects)
+  return { nodes, edges: assignEdgeAnchors(nodes, edges) }
 }
 
 function lineageElements(analysis: WorkflowAnalysis, selectedDataNodeId: string | undefined, searchQuery: string): { nodes: Node[]; edges: Edge[] } {
@@ -324,9 +557,8 @@ function lineageElements(analysis: WorkflowAnalysis, selectedDataNodeId: string 
   })
   const nodes: Node[] = [...names].map((name) => ({
     id: `table:${name}`,
+    type: 'anchored',
     position: { x: 0, y: 0 },
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left,
     data: { label: <TableLabel name={name} analysis={analysis} /> },
     className: `lineage-table-node${selectedDataNodeId === `table:${name}` ? ' is-selected' : ''}${searchClass(tableSearchValue(name, analysis), searchQuery)}`,
     style: { width: TABLE_WIDTH, minHeight: TABLE_HEIGHT },
@@ -341,7 +573,8 @@ function lineageElements(analysis: WorkflowAnalysis, selectedDataNodeId: string 
     className: `lineage-edge confidence-${record.confidence}`,
     markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
   }))
-  return { nodes: layoutGraph(nodes, edges, { width: TABLE_WIDTH, height: TABLE_HEIGHT }, 'LR'), edges }
+  const positioned = layoutGraph(nodes, edges, { width: TABLE_WIDTH, height: TABLE_HEIGHT }, 'LR')
+  return { nodes: positioned, edges: assignEdgeAnchors(positioned, edges) }
 }
 
 export function WorkflowGraph({
@@ -401,11 +634,15 @@ export function WorkflowGraph({
       }}
     >
       <ReactFlow
+        // Remount per view so fitView re-runs: each mode lays the graph out at a
+        // very different size and the previous viewport rarely suits the next one.
+        key={`${mode}:${document?.path ?? 'none'}`}
         nodes={elements.nodes}
         edges={elements.edges}
+        nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.18, minZoom: mode === 'pipeline' ? 0.32 : mode === 'combined' ? 0.34 : 0.45, maxZoom: 1.15 }}
-        minZoom={0.2}
+        fitViewOptions={{ padding: 0.12, minZoom: mode === 'lineage' ? 0.45 : 0.12, maxZoom: 1.15 }}
+        minZoom={0.1}
         maxZoom={1.8}
         nodesDraggable={false}
         nodesConnectable={false}
