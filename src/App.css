@@ -3449,3 +3449,88 @@ button:disabled {
   opacity: 0;
   pointer-events: none;
 }
+
+/* HTML export: a small popover next to the PNG/PDF buttons that picks what the
+   generated page contains. */
+.html-export {
+  position: relative;
+}
+
+.html-export .secondary-button svg.is-open {
+  transform: rotate(180deg);
+}
+
+.html-export-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  width: 258px;
+  padding: 13px;
+  flex-direction: column;
+  gap: 9px;
+  background: #fff;
+  border: 1px solid #d7e0ea;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(31, 45, 61, 0.16);
+  text-align: left;
+}
+
+.html-export-menu > p {
+  margin: 0;
+  color: #55677d;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.html-export-fixed {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #6b7c91;
+  font-size: 12px;
+}
+
+.html-export-fixed svg {
+  color: #3f8f5f;
+  flex: none;
+}
+
+.html-export-menu label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #33465c;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.html-export-menu label.is-disabled {
+  color: #a6b2c0;
+  cursor: not-allowed;
+}
+
+.html-export-menu label input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #2f6db2;
+  flex: none;
+}
+
+.html-export-menu label small {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eef3f9;
+  color: #6b7c91;
+  font-size: 10px;
+}
+
+.html-export-menu .primary-button {
+  margin-top: 3px;
+  justify-content: center;
+}

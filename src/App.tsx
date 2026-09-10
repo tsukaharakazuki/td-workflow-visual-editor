@@ -59,7 +59,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
-import { toPng } from 'html-to-image'
+import { toPng, toSvg } from 'html-to-image'
 import { jsPDF } from 'jspdf'
 import {
   addChildTask,
@@ -245,6 +245,210 @@ function downloadBytes(bytes: Uint8Array, filename: string, type: string) {
   URL.revokeObjectURL(url)
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    if (character === '&') return '&amp;'
+    if (character === '<') return '&lt;'
+    if (character === '>') return '&gt;'
+    if (character === '"') return '&quot;'
+    return '&#39;'
+  })
+}
+
+interface GraphHtmlTaskRow {
+  name: string
+  operator: string
+  depth: number
+  parent: string
+  workflow: string
+  database: string
+}
+
+interface GraphHtmlLineageRow {
+  source: string
+  target: string
+  task: string
+  confidence: string
+}
+
+interface GraphHtmlInput {
+  projectName: string
+  viewLabel: string
+  svgMarkup: string
+  taskRows?: GraphHtmlTaskRow[]
+  lineageRows?: GraphHtmlLineageRow[]
+}
+
+/**
+ * Builds a self-contained HTML page around the graph's SVG snapshot. The page
+ * carries its own styles and a small pan/zoom script so it opens in any browser
+ * with no network access and no build step.
+ */
+function buildStandaloneGraphHtml({ projectName, viewLabel, svgMarkup, taskRows, lineageRows }: GraphHtmlInput): string {
+  const generatedAt = new Date().toLocaleString('ja-JP')
+  const table = (caption: string, headers: string[], rows: string[][]) => rows.length === 0 ? '' : `
+    <section class="listing">
+      <h2>${escapeHtml(caption)} <small>${rows.length}</small></h2>
+      <div class="listing-scroll">
+        <table>
+          <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
+          <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </section>`
+
+  const taskTable = taskRows
+    ? table('タスク一覧', ['タスク', 'オペレーター', '階層', '親タスク', 'ワークフロー', 'データベース'],
+      taskRows.map((row) => [row.name, row.operator, String(row.depth), row.parent, row.workflow, row.database]))
+    : ''
+  const lineageTable = lineageRows
+    ? table('テーブルリネージ', ['入力テーブル', '出力テーブル', 'タスク', '確度'],
+      lineageRows.map((row) => [row.source, row.target, row.task, row.confidence]))
+    : ''
+
+  return `<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(projectName)} — ${escapeHtml(viewLabel)}</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f7f9fc; color: #1f2d3d; font-family: "Inter", "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; padding: 18px 24px; background: #fff; border-bottom: 1px solid #dfe6ef; }
+  header h1 { margin: 0; font-size: 17px; }
+  header p { margin: 0; color: #6b7c91; font-size: 12px; }
+  header .badge { padding: 3px 9px; border-radius: 999px; background: #eaf2fb; color: #2f6db2; font-size: 11px; font-weight: 600; }
+  main { padding: 18px 24px 40px; }
+  .viewport { position: relative; height: min(74vh, 820px); overflow: hidden; background: #f7f9fc; border: 1px solid #dfe6ef; border-radius: 10px; cursor: grab; touch-action: none; }
+  .viewport.is-dragging { cursor: grabbing; }
+  .stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+  .stage svg { display: block; }
+  .zoom-bar { position: absolute; right: 12px; bottom: 12px; z-index: 2; display: flex; gap: 6px; }
+  .zoom-bar button { min-width: 34px; height: 34px; padding: 0 10px; background: #fff; color: #33465c; border: 1px solid #d3dde8; border-radius: 8px; box-shadow: 0 2px 8px rgba(31, 45, 61, .1); font-size: 13px; cursor: pointer; }
+  .zoom-bar button:hover { border-color: #4f8fc4; color: #2f6db2; }
+  .hint { margin: 10px 2px 0; color: #7b8ca0; font-size: 12px; }
+  .listing { margin-top: 30px; }
+  .listing h2 { margin: 0 0 10px; font-size: 14px; }
+  .listing h2 small { margin-left: 6px; padding: 2px 8px; border-radius: 999px; background: #eef3f9; color: #6b7c91; font-size: 11px; font-weight: 500; }
+  .listing-scroll { overflow-x: auto; background: #fff; border: 1px solid #dfe6ef; border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid #eef2f7; white-space: nowrap; }
+  th { background: #f4f7fb; color: #55677d; font-weight: 600; }
+  tbody tr:last-child td { border-bottom: 0; }
+  @media (max-width: 640px) { header, main { padding-left: 14px; padding-right: 14px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>${escapeHtml(projectName)}</h1>
+  <span class="badge">${escapeHtml(viewLabel)}</span>
+  <p>出力日時 ${escapeHtml(generatedAt)}</p>
+</header>
+<main>
+  <div class="viewport" id="viewport">
+    <div class="zoom-bar">
+      <button type="button" id="zoom-out" title="縮小">−</button>
+      <button type="button" id="zoom-in" title="拡大">＋</button>
+      <button type="button" id="zoom-fit" title="全体を表示">全体</button>
+    </div>
+    <div class="stage" id="stage">${svgMarkup}</div>
+  </div>
+  <p class="hint">ドラッグで移動、ホイールで拡大縮小できます。</p>
+  ${taskTable}
+  ${lineageTable}
+</main>
+<script>
+(function () {
+  var viewport = document.getElementById('viewport')
+  var stage = document.getElementById('stage')
+  var scale = 1, offsetX = 0, offsetY = 0
+  var dragging = false, lastX = 0, lastY = 0
+
+  function apply() {
+    stage.style.transform = 'translate(' + offsetX + 'px,' + offsetY + 'px) scale(' + scale + ')'
+  }
+  function graphSize() {
+    var svg = stage.firstElementChild
+    if (!svg) return null
+    var width = parseFloat(svg.getAttribute('width')) || svg.getBoundingClientRect().width
+    var height = parseFloat(svg.getAttribute('height')) || svg.getBoundingClientRect().height
+    if (!width || !height) return null
+    return { width: width, height: height }
+  }
+  function fit() {
+    var size = graphSize()
+    if (!size) return
+    var box = viewport.getBoundingClientRect()
+    scale = Math.min(box.width / size.width, box.height / size.height)
+    offsetX = (box.width - size.width * scale) / 2
+    offsetY = (box.height - size.height * scale) / 2
+    apply()
+  }
+  function zoomAt(factor, pointX, pointY) {
+    var next = Math.min(8, Math.max(0.05, scale * factor))
+    offsetX = pointX - (pointX - offsetX) * (next / scale)
+    offsetY = pointY - (pointY - offsetY) * (next / scale)
+    scale = next
+    apply()
+  }
+
+  viewport.addEventListener('wheel', function (event) {
+    event.preventDefault()
+    var box = viewport.getBoundingClientRect()
+    zoomAt(Math.exp(-event.deltaY * 0.0015), event.clientX - box.left, event.clientY - box.top)
+  }, { passive: false })
+  viewport.addEventListener('pointerdown', function (event) {
+    dragging = true
+    lastX = event.clientX
+    lastY = event.clientY
+    viewport.classList.add('is-dragging')
+    viewport.setPointerCapture(event.pointerId)
+  })
+  viewport.addEventListener('pointermove', function (event) {
+    if (!dragging) return
+    offsetX += event.clientX - lastX
+    offsetY += event.clientY - lastY
+    lastX = event.clientX
+    lastY = event.clientY
+    apply()
+  })
+  ;['pointerup', 'pointercancel'].forEach(function (type) {
+    viewport.addEventListener(type, function (event) {
+      dragging = false
+      viewport.classList.remove('is-dragging')
+      try { viewport.releasePointerCapture(event.pointerId) } catch (error) { /* already released */ }
+    })
+  })
+
+  document.getElementById('zoom-in').addEventListener('click', function () {
+    var box = viewport.getBoundingClientRect()
+    zoomAt(1.2, box.width / 2, box.height / 2)
+  })
+  document.getElementById('zoom-out').addEventListener('click', function () {
+    var box = viewport.getBoundingClientRect()
+    zoomAt(1 / 1.2, box.width / 2, box.height / 2)
+  })
+  document.getElementById('zoom-fit').addEventListener('click', fit)
+  window.addEventListener('resize', fit)
+  fit()
+})()
+</script>
+</body>
+</html>
+`
+}
+
+/** Canvas chrome (controls, minimap, attribution) does not belong in an export. */
+function exportNodeFilter(node: HTMLElement): boolean {
+  if (!node || typeof node.getAttribute !== 'function') return true
+  const classNames = node.getAttribute('class')?.split(/\s+/) ?? []
+  return !classNames.includes('react-flow__controls') &&
+    !classNames.includes('react-flow__minimap') &&
+    !classNames.includes('react-flow__attribution')
+}
+
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
 
 function createExportEdgeOverlay(container: HTMLElement): () => void {
@@ -319,6 +523,57 @@ function createExportEdgeOverlay(container: HTMLElement): () => void {
 
   container.appendChild(overlay)
   return () => overlay.remove()
+}
+
+const EXPORT_SVG_STYLE_PROPERTIES = [
+  'fill',
+  'fill-opacity',
+  'stroke',
+  'stroke-width',
+  'stroke-opacity',
+  'stroke-dasharray',
+  'stroke-linecap',
+  'stroke-linejoin',
+  'font-family',
+  'font-size',
+  'font-weight',
+  'text-anchor',
+  'dominant-baseline',
+]
+
+/**
+ * html-to-image deep-clones SVG subtrees without copying computed styles, so
+ * anything inside them that gets its paint from a stylesheet (edge labels,
+ * arrowheads) falls back to black in exports. Inline those values first and
+ * restore them afterwards.
+ */
+function inlineSvgStylesForExport(container: HTMLElement): () => void {
+  const targets = [...container.querySelectorAll<SVGElement>(
+    '.react-flow__edges *, .react-flow__marker *, marker *, .react-flow__edge-text, .react-flow__edge-textbg',
+  )]
+  const restorers = targets.map((element) => {
+    const previous = element.getAttribute('style')
+    const computed = getComputedStyle(element)
+    EXPORT_SVG_STYLE_PROPERTIES.forEach((property) => {
+      const value = computed.getPropertyValue(property)
+      if (value) element.style.setProperty(property, value)
+    })
+    return () => {
+      if (previous === null) element.removeAttribute('style')
+      else element.setAttribute('style', previous)
+    }
+  })
+  return () => restorers.forEach((restore) => restore())
+}
+
+/** Applies every export-time fixup and returns a single cleanup. */
+function prepareGraphForExport(container: HTMLElement): () => void {
+  const restoreSvgStyles = inlineSvgStylesForExport(container)
+  const removeEdgeOverlay = createExportEdgeOverlay(container)
+  return () => {
+    removeEdgeOverlay()
+    restoreSvgStyles()
+  }
 }
 
 function ImportScreen({ onFile, onSample, loading }: {
@@ -737,6 +992,26 @@ function App() {
   const [toast, setToast] = useState<ToastState>()
   const importInputRef = useRef<HTMLInputElement>(null)
   const graphRef = useRef<HTMLDivElement>(null)
+  const htmlExportRef = useRef<HTMLDivElement>(null)
+  const [htmlExportOpen, setHtmlExportOpen] = useState(false)
+  const [htmlIncludeTasks, setHtmlIncludeTasks] = useState(false)
+  const [htmlIncludeLineage, setHtmlIncludeLineage] = useState(false)
+
+  useEffect(() => {
+    if (!htmlExportOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!htmlExportRef.current?.contains(event.target as Node)) setHtmlExportOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHtmlExportOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [htmlExportOpen])
 
   const analysis = useMemo<WorkflowAnalysis | undefined>(() => archive ? analyzeWorkflow(archive) : undefined, [archive])
   const documents = useMemo(() => analysis?.documents ?? [], [analysis])
@@ -966,22 +1241,31 @@ function App() {
 
   const captureGraphImage = async (): Promise<string> => {
     if (!graphRef.current) throw new Error('グラフが表示されていません')
-    const cleanupEdgeOverlay = createExportEdgeOverlay(graphRef.current)
+    const cleanupExport = prepareGraphForExport(graphRef.current)
     try {
       return await toPng(graphRef.current, {
         backgroundColor: '#f7f7fb',
         cacheBust: true,
         pixelRatio: 2,
-        filter: (node) => {
-          if (!node || typeof node.getAttribute !== 'function') return true
-          const classNames = node.getAttribute('class')?.split(/\s+/) ?? []
-          return !classNames.includes('react-flow__controls') &&
-            !classNames.includes('react-flow__minimap') &&
-            !classNames.includes('react-flow__attribution')
-        },
+        filter: exportNodeFilter,
       })
     } finally {
-      cleanupEdgeOverlay()
+      cleanupExport()
+    }
+  }
+
+  const captureGraphSvgMarkup = async (): Promise<string> => {
+    if (!graphRef.current) throw new Error('グラフが表示されていません')
+    const cleanupExport = prepareGraphForExport(graphRef.current)
+    try {
+      const dataUrl = await toSvg(graphRef.current, {
+        backgroundColor: '#f7f7fb',
+        cacheBust: true,
+        filter: exportNodeFilter,
+      })
+      return decodeURIComponent(dataUrl.slice(dataUrl.indexOf(',') + 1))
+    } finally {
+      cleanupExport()
     }
   }
 
@@ -1032,6 +1316,49 @@ function App() {
       setToast({ type: 'success', message: 'グラフをPDFで出力しました' })
     } catch (error) {
       setToast({ type: 'error', message: error instanceof Error ? error.message : 'PDF出力に失敗しました' })
+    }
+  }
+
+  const graphViewLabel = view === 'pipeline' ? 'Task Flow' : view === 'combined' ? 'Task + Data Flow' : 'Data Lineage'
+
+  const htmlTaskRows = useMemo(() => {
+    const tasks = selectedDocument?.tasks ?? []
+    const byId = new Map(tasks.map((task) => [task.id, task]))
+    return tasks.map((task) => ({
+      name: task.name.replace(/^\+/, ''),
+      operator: task.operator === '_parallel' ? 'Parallel group' : task.operator ?? 'Group',
+      depth: task.depth,
+      parent: task.parentId ? byId.get(task.parentId)?.name.replace(/^\+/, '') ?? '' : '',
+      workflow: task.documentPath,
+      database: task.database ?? '',
+    }))
+  }, [selectedDocument])
+
+  const htmlLineageRows = useMemo(() => {
+    const byId = new Map((analysis?.tasks ?? []).map((item) => [item.task.id, item.task]))
+    return (analysis?.tableLineage ?? []).map((record) => ({
+      source: record.source.qualifiedName,
+      target: record.target.qualifiedName,
+      task: record.taskId ? byId.get(record.taskId)?.name.replace(/^\+/, '') ?? '' : '',
+      confidence: record.confidence,
+    }))
+  }, [analysis])
+
+  const downloadGraphHtml = async () => {
+    setHtmlExportOpen(false)
+    try {
+      const svgMarkup = await captureGraphSvgMarkup()
+      const html = buildStandaloneGraphHtml({
+        projectName,
+        viewLabel: graphViewLabel,
+        svgMarkup,
+        taskRows: htmlIncludeTasks ? htmlTaskRows : undefined,
+        lineageRows: htmlIncludeLineage ? htmlLineageRows : undefined,
+      })
+      downloadBytes(new TextEncoder().encode(html), `${projectName}-${graphExportLabel}.html`, 'text/html;charset=utf-8')
+      setToast({ type: 'success', message: 'グラフをHTMLで出力しました' })
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : 'HTML出力に失敗しました' })
     }
   }
 
@@ -1089,6 +1416,24 @@ function App() {
             {(view === 'pipeline' || view === 'combined' || view === 'lineage') && <>
               <button className="secondary-button" type="button" title="グラフをPNGで出力" aria-label="グラフをPNGで出力" onClick={downloadGraphPng}><ImageDown size={16} /> PNG</button>
               <button className="secondary-button" type="button" title="グラフをPDFで出力" aria-label="グラフをPDFで出力" onClick={downloadGraphPdf}><FileDown size={16} /> PDF</button>
+              <div className="html-export" ref={htmlExportRef}>
+                <button className={`secondary-button ${htmlExportOpen ? 'active' : ''}`} type="button" title="グラフをHTMLで出力" aria-label="グラフをHTMLで出力" aria-expanded={htmlExportOpen} onClick={() => setHtmlExportOpen((current) => !current)}><FileCode2 size={16} /> HTML <ChevronDown size={13} className={htmlExportOpen ? 'is-open' : ''} /></button>
+                {htmlExportOpen && (
+                  <div className="html-export-menu" role="dialog" aria-label="HTML出力の設定">
+                    <p>HTMLに含める内容</p>
+                    <span className="html-export-fixed"><Check size={13} /> グラフ（ベクター・拡大縮小可）</span>
+                    <label className={htmlTaskRows.length === 0 ? 'is-disabled' : ''}>
+                      <input type="checkbox" checked={htmlIncludeTasks && htmlTaskRows.length > 0} disabled={htmlTaskRows.length === 0} onChange={(event) => setHtmlIncludeTasks(event.target.checked)} />
+                      タスク一覧 <small>{htmlTaskRows.length}</small>
+                    </label>
+                    <label className={htmlLineageRows.length === 0 ? 'is-disabled' : ''}>
+                      <input type="checkbox" checked={htmlIncludeLineage && htmlLineageRows.length > 0} disabled={htmlLineageRows.length === 0} onChange={(event) => setHtmlIncludeLineage(event.target.checked)} />
+                      テーブルリネージ一覧 <small>{htmlLineageRows.length}</small>
+                    </label>
+                    <button className="primary-button" type="button" onClick={downloadGraphHtml}><Download size={15} /> ダウンロード</button>
+                  </div>
+                )}
+              </div>
             </>}
             <button className="primary-button" type="button" onClick={downloadProject}><Download size={16} /> Project ZIP</button>
             <input ref={importInputRef} className="visually-hidden" type="file" accept=".zip,application/zip" onChange={(event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) loadZip(file, file.name) }} />
