@@ -17,6 +17,7 @@ import type {
   DigdagDocument,
   DigdagTaskNode,
   SchemaTable,
+  SqlTableReference,
   WorkflowAnalysis,
 } from '../types'
 
@@ -109,6 +110,27 @@ function taskLabel(task: DigdagTaskNode) {
   )
 }
 
+/**
+ * Table names written with `${...}` are resolved before they reach the graph.
+ * This keeps the original expression so a card can show where its name came from.
+ */
+function templatesByTable(analysis: WorkflowAnalysis): Map<string, string> {
+  const templates = new Map<string, string>()
+  const add = (reference: SqlTableReference) => {
+    const key = reference.qualifiedName.toLowerCase()
+    if (reference.template && !templates.has(key)) templates.set(key, reference.template)
+  }
+  analysis.tasks.forEach((item) => {
+    item.sql?.sources.forEach(add)
+    item.sql?.targets.forEach(add)
+  })
+  analysis.tableLineage.forEach((record) => {
+    add(record.source)
+    add(record.target)
+  })
+  return templates
+}
+
 function schemaTableFor(name: string, analysis: WorkflowAnalysis): SchemaTable | undefined {
   const normalized = name.toLowerCase()
   return analysis.schemas
@@ -116,7 +138,7 @@ function schemaTableFor(name: string, analysis: WorkflowAnalysis): SchemaTable |
     .find((table) => table.qualifiedName.toLowerCase() === normalized || table.name.toLowerCase() === normalized)
 }
 
-function TableLabel({ name, analysis }: { name: string; analysis: WorkflowAnalysis }) {
+function TableLabel({ name, analysis, template }: { name: string; analysis: WorkflowAnalysis; template?: string }) {
   const schema = schemaTableFor(name, analysis)
   const [columnQuery, setColumnQuery] = useState('')
   const [expanded, setExpanded] = useState(false)
@@ -132,7 +154,11 @@ function TableLabel({ name, analysis }: { name: string; analysis: WorkflowAnalys
     <div className="graph-table-label">
       <div className="graph-table-title">
         <span><Database size={18} /></span>
-        <div><small>{serviceName} <i>·</i> <Table2 size={9} /> Table</small><strong title={name}>{tableName}</strong></div>
+        <div>
+          <small>{serviceName} <i>·</i> <Table2 size={9} /> Table</small>
+          <strong title={name}>{tableName}</strong>
+          {template && <em className="graph-table-template" title={`変数定義: ${template}`}>{template}</em>}
+        </div>
         <EllipsisVertical size={16} className="graph-entity-menu" />
       </div>
       <div className="graph-table-body">
@@ -505,11 +531,12 @@ function combinedElements(
     item.sql?.sources.forEach((source) => attach(inputTables, item.task.id, tableIdFor(source.qualifiedName)))
   })
 
+  const templates = templatesByTable(analysis)
   const tableNodes: Node[] = [...tableNames.entries()].map(([key, name]) => ({
     id: `table:${key}`,
     type: 'anchored',
     position: { x: 0, y: 0 },
-    data: { label: <TableLabel name={name} analysis={analysis} /> },
+    data: { label: <TableLabel name={name} analysis={analysis} template={templates.get(key)} /> },
     className: `lineage-table-node workflow-data-node${selectedDataNodeId === `table:${key}` ? ' is-selected' : ''}${searchClass(tableSearchValue(name, analysis), searchQuery)}`,
     style: { width: TABLE_WIDTH, minHeight: TABLE_HEIGHT },
   }))
@@ -555,11 +582,12 @@ function lineageElements(analysis: WorkflowAnalysis, selectedDataNodeId: string 
     names.add(record.source.qualifiedName)
     names.add(record.target.qualifiedName)
   })
+  const templates = templatesByTable(analysis)
   const nodes: Node[] = [...names].map((name) => ({
     id: `table:${name}`,
     type: 'anchored',
     position: { x: 0, y: 0 },
-    data: { label: <TableLabel name={name} analysis={analysis} /> },
+    data: { label: <TableLabel name={name} analysis={analysis} template={templates.get(name.toLowerCase())} /> },
     className: `lineage-table-node${selectedDataNodeId === `table:${name}` ? ' is-selected' : ''}${searchClass(tableSearchValue(name, analysis), searchQuery)}`,
     style: { width: TABLE_WIDTH, minHeight: TABLE_HEIGHT },
   }))

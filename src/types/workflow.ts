@@ -85,7 +85,16 @@ export interface DigdagTaskNode {
   sql?: SqlReference
   /** A JSON-safe snapshot of the task value at parse time. */
   value: unknown
+  /**
+   * The map that actually carries the task's operator. It differs from `value`
+   * when the operator sits in an anonymous `_do` / `for_each>` subtree below a
+   * named task, which is where Digdag lets loops declare their real work.
+   */
+  operatorConfig?: unknown
 }
+
+/** Digdag `${...}` variables in scope, as plain JavaScript values. */
+export type VariableScope = Record<string, unknown>
 
 export interface DigdagDocument {
   path: string
@@ -94,10 +103,19 @@ export interface DigdagDocument {
   tasks: DigdagTaskNode[]
   rootTaskIds: string[]
   diagnostics: Diagnostic[]
+  /** Variables from the workflow's root `_export`, includes merged in. */
+  rootVariables: VariableScope
+  /**
+   * Every scope a task runs under, keyed by task id. A task inside a `for_each>`
+   * has one scope per iteration, so its table names expand to one name each.
+   */
+  taskVariables: Record<string, VariableScope[]>
 }
 
 export interface DigdagParseOptions {
   path?: string
+  /** Loads a `!include`d YAML file, relative to the workflow. */
+  resolveInclude?: (path: string) => unknown
 }
 
 export type SqlConfidence = 'exact' | 'inferred' | 'ambiguous' | 'unresolved'
@@ -109,6 +127,15 @@ export interface SqlTableReference {
   qualifiedName: string
   confidence: SqlConfidence
   location?: number
+  /** The original `${...}` form, when the name was written with variables. */
+  template?: string
+  /**
+   * Which `for_each>` iterations produced this name. Absent for a name that
+   * holds no variables, which therefore belongs to every iteration. Lineage
+   * only pairs a source with a target when their iterations overlap, so a loop
+   * writing one table per partition does not gain edges between partitions.
+   */
+  iterations?: number[]
 }
 
 export interface SqlColumn {

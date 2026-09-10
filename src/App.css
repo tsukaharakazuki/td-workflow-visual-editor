@@ -3578,3 +3578,16 @@ button:disabled {
   margin-top: 3px;
   justify-content: center;
 }
+
+/* A table whose name came from a ${...} expression shows the expression too. */
+.graph-table-template {
+  display: block;
+  overflow: hidden;
+  color: #8a97a6;
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 9px;
+  font-style: normal;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

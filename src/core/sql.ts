@@ -6,7 +6,13 @@ import type {
   SqlTableReference,
 } from '../types/workflow'
 
-const IDENTIFIER = '[A-Za-z_][A-Za-z0-9_$-]*|\\$\\{[^}]*\\}|"[^"]+"|`[^`]+`'
+// A name may interleave literal chunks and `${...}` templates, as in
+// `pred_${set[params].name}`. Matching the template first keeps the `$` of an
+// opening `${` out of the literal chunk.
+const TEMPLATE = '\\$\\{[^{}]*\\}'
+const NAME_CHAR = '(?:[A-Za-z0-9_-]|\\$(?!\\{))'
+const TEMPLATED_NAME = `(?:${TEMPLATE}|[A-Za-z_]${NAME_CHAR}*)(?:${TEMPLATE}|${NAME_CHAR}+)*`
+const IDENTIFIER = `${TEMPLATED_NAME}|"[^"]+"|\`[^\`]+\``
 const TABLE_TOKEN = `((?:${IDENTIFIER})(?:\\s*\\.\\s*(?:${IDENTIFIER})){0,2})`
 const RESERVED_ALIAS = new Set([
   'as', 'on', 'where', 'group', 'order', 'limit', 'having', 'union', 'join',
@@ -82,9 +88,7 @@ function unquoteIdentifier(value: string): string {
 }
 
 function normalizeName(value: string): string {
-  return value
-    .trim()
-    .split('.')
+  return splitQualifiedName(value)
     .map((part) => unquoteIdentifier(part))
     .join('.')
 }
@@ -93,7 +97,20 @@ function splitQualifiedName(value: string): string[] {
   const parts: string[] = []
   let current = ''
   let quote: string | undefined
-  for (const char of value.trim()) {
+  let templateDepth = 0
+  const text = value.trim()
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (!quote && templateDepth === 0 && char === '$' && text[index + 1] === '{') {
+      templateDepth += 1
+      current += char
+      continue
+    }
+    if (templateDepth > 0) {
+      if (char === '}') templateDepth -= 1
+      current += char
+      continue
+    }
     if ((char === '"' || char === '`') && !quote) {
       quote = char
       current += char
@@ -120,9 +137,12 @@ export function parseSqlTableReference(
   const parts = splitQualifiedName(normalized)
   const dynamic = normalized.includes('${')
   if (dynamic) {
+    const table = parts[parts.length - 1] ?? normalized
+    const tableDatabase = parts.length >= 2 ? parts.slice(0, -1).join('.') : database
     return {
-      name: normalized,
-      qualifiedName: normalized,
+      name: table,
+      ...(tableDatabase ? { database: tableDatabase } : {}),
+      qualifiedName: tableDatabase ? `${tableDatabase}.${table}` : table,
       ...(location === undefined ? {} : { location }),
       confidence: 'unresolved',
     }

@@ -4,6 +4,7 @@ import {
   parseDocument as parseYamlDocument,
 } from 'yaml'
 import type { Document, Pair, YAMLMap } from 'yaml'
+import { evaluateExpression, expandTemplate } from './variables'
 import type {
   Diagnostic,
   DigdagDocument,
@@ -11,8 +12,13 @@ import type {
   DigdagTaskNode,
   SqlReference,
   TaskOperator,
+  VariableScope,
   YamlPath,
 } from '../types/workflow'
+
+/** A loop can expand a task into many table names; cap the blast radius. */
+const MAX_SCOPES = 64
+const OPERATOR_KEYS = ['td>', 'sql>', 'query>'] as const
 
 interface ExecutionContext {
   database?: string
@@ -90,6 +96,146 @@ function taskContext(body: YAMLMap, inherited: ExecutionContext): ExecutionConte
   return context
 }
 
+/**
+ * `!include : path` loses its tag during YAML parsing — it survives only as a
+ * null key — so the original text decides whether a pair is an include.
+ */
+function includePathFor(pair: Pair, text: string): string | undefined {
+  const key = pair.key as { value?: unknown; range?: readonly number[] } | undefined
+  if (!key) return undefined
+  if (key.value !== null && key.value !== undefined && key.value !== '') return undefined
+  const start = key.range?.[0]
+  if (start === undefined) return undefined
+  if (!/!include\s*$/.test(text.slice(Math.max(0, start - 40), start))) return undefined
+  return scalarString(pair.value)
+}
+
+function scopeFromExport(
+  value: unknown,
+  text: string,
+  resolveInclude?: (path: string) => unknown,
+): VariableScope {
+  const map = mapFor(value)
+  if (!map) return {}
+  const scope: VariableScope = {}
+  for (const pair of map.items) {
+    const includePath = includePathFor(pair, text)
+    if (includePath !== undefined) {
+      const loaded = resolveInclude?.(includePath)
+      if (loaded && typeof loaded === 'object' && !Array.isArray(loaded)) {
+        Object.assign(scope, loaded as VariableScope)
+      }
+      continue
+    }
+    const key = keyString(pair)
+    if (!key) continue
+    scope[key] = nodeToJs(pair.value)
+  }
+  return scope
+}
+
+function mergeScope(scopes: readonly VariableScope[], added: VariableScope): VariableScope[] {
+  if (Object.keys(added).length === 0) return [...scopes]
+  return scopes.map((scope) => ({ ...scope, ...added }))
+}
+
+function loopValues(value: unknown, scope: VariableScope): unknown[] {
+  if (isSeq(value)) {
+    return value.items.map((item) => {
+      const plain = nodeToJs(item)
+      return typeof plain === 'string' ? expandTemplate(plain, scope).text : plain
+    })
+  }
+  const text = scalarString(value)
+  const single = text?.trim().match(/^\$\{([^{}]*)\}$/)
+  if (!single) return []
+  const evaluated = evaluateExpression(single[1], scope)
+  return Array.isArray(evaluated) ? evaluated : []
+}
+
+/** One scope per loop iteration, so each iteration's table names expand on their own. */
+function expandForEach(map: YAMLMap, scopes: readonly VariableScope[]): VariableScope[] {
+  const expanded: VariableScope[] = []
+  for (const scope of scopes) {
+    let current: VariableScope[] = [scope]
+    for (const pair of map.items) {
+      const key = keyString(pair)
+      if (!key) continue
+      const next: VariableScope[] = []
+      for (const item of current) {
+        const values = loopValues(pair.value, item)
+        // An unresolvable list leaves the scope alone rather than dropping it.
+        if (values.length === 0) next.push(item)
+        else values.forEach((value) => next.push({ ...item, [key]: value }))
+      }
+      current = next
+    }
+    expanded.push(...current)
+    if (expanded.length >= MAX_SCOPES) break
+  }
+  return expanded.slice(0, MAX_SCOPES)
+}
+
+function scopesForLevel(
+  map: YAMLMap,
+  scopes: readonly VariableScope[],
+  text: string,
+  resolveInclude?: (path: string) => unknown,
+): VariableScope[] {
+  let result = mergeScope(scopes, scopeFromExport(valueFor(map, '_export'), text, resolveInclude))
+  const forEach = mapFor(valueFor(map, 'for_each>'))
+  if (forEach) result = expandForEach(forEach, result)
+  return result
+}
+
+function hasOperator(map: YAMLMap): boolean {
+  return map.items.some((pair) => {
+    const key = keyString(pair)
+    return key !== undefined && (OPERATOR_KEYS as readonly string[]).includes(key)
+  })
+}
+
+function containsTask(map: YAMLMap): boolean {
+  return map.items.some((pair) => keyString(pair)?.startsWith('+') === true)
+}
+
+/**
+ * Digdag lets a named task keep its real work in an anonymous `_do` /
+ * `for_each>` subtree. Such a subtree belongs to the nearest named task, so its
+ * operator and its loop scopes are reported as that task's.
+ */
+function inlineOperatorBody(
+  body: YAMLMap,
+  scopes: readonly VariableScope[],
+  path: YamlPath,
+  text: string,
+  resolveInclude?: (path: string) => unknown,
+): { map: YAMLMap; scopes: VariableScope[]; path: YamlPath } | undefined {
+  const queue: Array<{ map: YAMLMap; scopes: VariableScope[]; path: YamlPath }> = [
+    { map: body, scopes: [...scopes], path },
+  ]
+  while (queue.length > 0) {
+    const current = queue.shift() as { map: YAMLMap; scopes: VariableScope[]; path: YamlPath }
+    if (current.map !== body) {
+      if (containsTask(current.map)) continue
+      if (hasOperator(current.map)) return current
+    }
+    const levelScopes = current.map === body
+      ? current.scopes
+      : scopesForLevel(current.map, current.scopes, text, resolveInclude)
+    for (const pair of current.map.items) {
+      const key = keyString(pair)
+      if (!key || key.startsWith('+')) continue
+      if (key !== '_do' && key !== '_parallel' && !key.endsWith('>')) continue
+      for (const child of collectionChildren(pair.value)) {
+        const childMap = mapFor(child)
+        if (childMap) queue.push({ map: childMap, scopes: levelScopes, path: [...current.path, key] })
+      }
+    }
+  }
+  return undefined
+}
+
 function stableTaskId(documentPath: string, names: readonly string[]): string {
   // Names rather than array indexes make IDs survive sibling reordering and reparse.
   return `task:${documentPath}:${names.join('/')}`
@@ -114,7 +260,14 @@ function sqlReferenceFor(body: YAMLMap, taskPath: YamlPath): SqlReference | unde
         : { kind: 'reference', path: text, yamlPath: [...taskPath, operator] }
     }
     const text = scalarString(value)
-    if (!text) continue
+    if (!text) {
+      // `td>:` left empty with a sibling `query:` is a common Digdag shape.
+      const sibling = scalarString(valueFor(body, 'query')) ?? scalarString(valueFor(body, 'sql'))
+      if (!sibling) continue
+      return looksLikeSql(sibling)
+        ? { kind: 'inline', text: sibling, yamlPath: [...taskPath, operator] }
+        : { kind: 'reference', path: sibling, yamlPath: [...taskPath, operator] }
+    }
     return looksLikeSql(text)
       ? { kind: 'inline', text, yamlPath: [...taskPath, operator] }
       : { kind: 'reference', path: text, yamlPath: [...taskPath, operator] }
@@ -182,6 +335,7 @@ export function parseDigdagDocument(
 
   const tasks: DigdagTaskNode[] = []
   const rootTaskIds: string[] = []
+  const taskVariables: Record<string, VariableScope[]> = {}
   const root = document.contents
   const rootMap = mapFor(root)
   if (!rootMap) {
@@ -191,10 +345,11 @@ export function parseDigdagDocument(
       message: 'A Digdag workflow must have a YAML mapping at its root',
       filePath: path,
     })
-    return { path, text, document, tasks, rootTaskIds, diagnostics }
+    return { path, text, document, tasks, rootTaskIds, diagnostics, rootVariables: {}, taskVariables }
   }
 
   const rootContext = contextFromExport(valueFor(rootMap, '_export'), {})
+  const rootVariables = scopeFromExport(valueFor(rootMap, '_export'), text, options.resolveInclude)
 
   const visitContainer = (
     value: unknown,
@@ -203,10 +358,12 @@ export function parseDigdagDocument(
     context: ExecutionContext,
     depth: number,
     names: readonly string[],
+    scopes: readonly VariableScope[],
   ): void => {
     for (const collection of collectionChildren(value)) {
       const map = mapFor(collection)
       if (!map) continue
+      const levelScopes = scopesForLevel(map, scopes, text, options.resolveInclude)
       for (const pair of map.items) {
         const name = keyString(pair)
         if (!name) continue
@@ -225,6 +382,18 @@ export function parseDigdagDocument(
           const effectiveBody = body ?? (parseYamlDocument('{}').contents as YAMLMap)
           const effectiveContext = taskContext(effectiveBody, context)
           const operators = operatorsFor(effectiveBody)
+          const bodyScopes = mergeScope(
+            levelScopes,
+            scopeFromExport(valueFor(effectiveBody, '_export'), text, options.resolveInclude),
+          )
+          // A task whose operator lives in an anonymous subtree reports that
+          // subtree's operator and the scopes the loops there put it under.
+          const inline = hasOperator(effectiveBody)
+            ? undefined
+            : inlineOperatorBody(effectiveBody, bodyScopes, taskPath, text, options.resolveInclude)
+          const operatorBody = inline?.map ?? effectiveBody
+          const operatorPath = inline?.path ?? taskPath
+          const taskScopes = inline?.scopes ?? bodyScopes
           const task: DigdagTaskNode = {
             id: stableTaskId(path, [...names, name]),
             name,
@@ -238,9 +407,11 @@ export function parseDigdagDocument(
             operators,
             ...(effectiveContext.database ? { database: effectiveContext.database } : {}),
             ...(effectiveContext.engine ? { engine: effectiveContext.engine } : {}),
-            ...(body ? { sql: sqlReferenceFor(body, taskPath) } : {}),
+            ...(body ? { sql: sqlReferenceFor(operatorBody, operatorPath) } : {}),
             value: nodeToJs(pair.value),
+            ...(inline ? { operatorConfig: nodeToJs(inline.map) } : {}),
           }
+          taskVariables[task.id] = taskScopes
           tasks.push(task)
           if (parent) parent.children.push(task.id)
           else rootTaskIds.push(task.id)
@@ -248,24 +419,28 @@ export function parseDigdagDocument(
           // This intentionally walks every structural operator map. It covers
           // direct children, _do, _parallel, if>, for_each>, call>, require>,
           // and td> containers without mistaking SQL scalar text for YAML.
-          if (body) visitContainer(body, task, taskPath, effectiveContext, depth + 1, [...names, name])
+          if (body) visitContainer(body, task, taskPath, effectiveContext, depth + 1, [...names, name], bodyScopes)
           continue
         }
 
         const isStructural = name === '_do' || name === '_parallel' || name.endsWith('>')
         if (isStructural && (isMap(pair.value) || isSeq(pair.value))) {
-          visitContainer(pair.value, parent, parentPath, context, depth, names)
+          visitContainer(pair.value, parent, parentPath, context, depth, names, levelScopes)
         }
       }
     }
   }
 
-  visitContainer(rootMap, undefined, [], rootContext, 0, [])
-  return { path, text, document, tasks, rootTaskIds, diagnostics }
+  visitContainer(rootMap, undefined, [], rootContext, 0, [], [rootVariables])
+  return { path, text, document, tasks, rootTaskIds, diagnostics, rootVariables, taskVariables }
 }
 
-export function reparseDigdagDocument(document: DigdagDocument, text: string): DigdagDocument {
-  return parseDigdagDocument(text, { path: document.path })
+export function reparseDigdagDocument(
+  document: DigdagDocument,
+  text: string,
+  options: Omit<DigdagParseOptions, 'path'> = {},
+): DigdagDocument {
+  return parseDigdagDocument(text, { ...options, path: document.path })
 }
 
 export function serializeDigdagDocument(document: DigdagDocument): string {
@@ -290,6 +465,7 @@ export function findDigdagTaskByPath(
 
 export function parseDigdagDocuments(
   entries: ReadonlyArray<{ path: string; text: string }>,
+  options: Omit<DigdagParseOptions, 'path'> = {},
 ): DigdagDocument[] {
-  return entries.map((entry) => parseDigdagDocument(entry.text, { path: entry.path }))
+  return entries.map((entry) => parseDigdagDocument(entry.text, { ...options, path: entry.path }))
 }

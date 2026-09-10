@@ -1,9 +1,11 @@
+import { parse as parseYaml } from 'yaml'
 import { analyzeSql, parseSqlTableReference } from './sql'
 import {
   parseWorkflowSchema,
   schemaColumnsForReference,
 } from './schema'
 import { parseDigdagDocument } from './digdag'
+import { containsTemplate, expandTemplate, expandTemplateAcross } from './variables'
 import type {
   ColumnLineageRecord,
   Diagnostic,
@@ -14,6 +16,7 @@ import type {
   SqlConfidence,
   SqlTableReference,
   TableLineageRecord,
+  VariableScope,
   WorkflowAnalysis,
   WorkflowAnalysisOptions,
   WorkflowArchive,
@@ -63,41 +66,76 @@ function scalar(value: unknown): string | undefined {
 }
 
 function taskValue(task: DigdagTaskNode, key: string): string | undefined {
-  const record = plainRecord(task.value)
+  // An operator nested in an anonymous subtree carries its own configuration.
+  const record = plainRecord(task.operatorConfig) ?? plainRecord(task.value)
   return scalar(record?.[key])
 }
 
-function exportVariables(document: DigdagDocument): Record<string, string> {
-  const root = plainRecord(document.document.toJS())
-  const exported = plainRecord(root?._export)
-  if (!exported) return {}
-  const variables: Record<string, string> = {}
-  for (const [key, value] of Object.entries(exported)) {
-    const text = scalar(value)
-    if (text !== undefined) variables[key] = text
-  }
-  const td = plainRecord(exported.td)
-  if (td) {
-    for (const [key, value] of Object.entries(td)) {
-      const text = scalar(value)
-      if (text !== undefined && variables[key] === undefined) variables[key] = text
-    }
-  }
-  return variables
+function scopesForTask(document: DigdagDocument, task: DigdagTaskNode): VariableScope[] {
+  const scopes = document.taskVariables[task.id]
+  return scopes && scopes.length > 0 ? scopes : [document.rootVariables]
 }
 
-function resolveTemplate(value: string | undefined, variables: Record<string, string>): string | undefined {
+function expandOne(value: string | undefined, scopes: readonly VariableScope[]): string | undefined {
   if (!value) return value
-  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (expression, name: string) => variables[name] ?? expression)
+  const expansions = expandTemplateAcross(value, scopes)
+  return expansions.find((expansion) => expansion.resolved)?.text ?? expansions[0]?.text ?? value
 }
 
-function configuredTarget(task: DigdagTaskNode, variables: Record<string, string>): {
+/**
+ * Rewrites each reference once per distinct expansion, so a table written
+ * inside a loop becomes one node per iteration. The original `${...}` form is
+ * kept alongside so the graph can show where the name came from.
+ */
+function expandReferences(
+  references: readonly SqlTableReference[],
+  scopes: readonly VariableScope[],
+): SqlTableReference[] {
+  const expanded: SqlTableReference[] = []
+  const byName = new Map<string, SqlTableReference>()
+  for (const reference of references) {
+    const raw = reference.qualifiedName
+    const templated = containsTemplate(raw)
+    const list = scopes.length > 0 ? scopes : [{}]
+    list.forEach((scope, iteration) => {
+      const expansion = expandTemplate(raw, scope)
+      const key = expansion.text.toLowerCase()
+      const existing = byName.get(key)
+      if (existing) {
+        if (templated && existing.iterations && !existing.iterations.includes(iteration)) {
+          existing.iterations.push(iteration)
+        }
+        return
+      }
+      const next: SqlTableReference = {
+        ...parseSqlTableReference(expansion.text, undefined, reference.location),
+        ...(reference.alias ? { alias: reference.alias } : {}),
+        confidence: !templated
+          ? reference.confidence
+          : expansion.resolved ? 'inferred' : 'unresolved',
+        ...(templated ? { template: raw, iterations: [iteration] } : {}),
+      }
+      byName.set(key, next)
+      expanded.push(next)
+      if (!templated) return
+    })
+  }
+  return expanded
+}
+
+/** A name without iterations came from no loop, so it belongs to all of them. */
+function sharesIteration(left: SqlTableReference, right: SqlTableReference): boolean {
+  if (!left.iterations || !right.iterations) return true
+  return left.iterations.some((iteration) => right.iterations?.includes(iteration))
+}
+
+function configuredTarget(task: DigdagTaskNode): {
   operator?: 'create_table>' | 'insert_into>'
   value?: string
 } {
-  const createTable = resolveTemplate(taskValue(task, 'create_table'), variables)
+  const createTable = taskValue(task, 'create_table')
   if (createTable) return { operator: 'create_table>', value: createTable }
-  const insertInto = resolveTemplate(taskValue(task, 'insert_into'), variables)
+  const insertInto = taskValue(task, 'insert_into')
   if (insertInto) return { operator: 'insert_into>', value: insertInto }
   return {}
 }
@@ -188,11 +226,11 @@ function taskAnalyses(
   const analyses: WorkflowTaskAnalysis[] = []
   for (const document of documents) {
     diagnostics.push(...document.diagnostics)
-    const variables = exportVariables(document)
     for (const task of document.tasks) {
+      const scopes = scopesForTask(document, task)
       const source = sourceForTask(task, document, files, diagnostics)
-      const target = configuredTarget(task, variables)
-      const database = resolveTemplate(task.database, variables)
+      const target = configuredTarget(task)
+      const database = expandOne(task.database, scopes)
       if (!source && !target.value) {
         analyses.push({ task })
         continue
@@ -202,7 +240,12 @@ function taskAnalyses(
         ...(target.operator ? { operator: target.operator } : {}),
         ...(target.value ? { operatorValue: target.value } : {}),
       })
-      const withTarget = addConfiguredOperatorTarget(database, target.value, sql)
+      const configured = addConfiguredOperatorTarget(database, target.value, sql)
+      const withTarget: SqlAnalysis = {
+        ...configured,
+        sources: expandReferences(configured.sources, scopes),
+        targets: expandReferences(configured.targets, scopes),
+      }
       diagnostics.push(...withTarget.diagnostics.map((diagnostic) => ({
         ...diagnostic,
         filePath: source?.sourceFilePath ?? document.path,
@@ -378,10 +421,24 @@ function tableLineageForTask(analysis: WorkflowTaskAnalysis): TableLineageRecord
   const records: TableLineageRecord[] = []
   for (const target of analysis.sql.targets) {
     for (const source of analysis.sql.sources) {
+      if (!sharesIteration(source, target)) continue
       records.push({ source, target, taskId: analysis.task.id, confidence: combineConfidence(source.confidence, target.confidence) })
     }
   }
   return records
+}
+
+function includeResolverFor(documentPath: string, files: Map<string, WorkflowFile>): (path: string) => unknown {
+  return (reference: string) => {
+    const resolved = resolveReferencePath(documentPath, reference)
+    const text = resolved ? files.get(resolved)?.text : undefined
+    if (text === undefined) return undefined
+    try {
+      return parseYaml(text)
+    } catch {
+      return undefined
+    }
+  }
 }
 
 export function analyzeWorkflow(
@@ -396,13 +453,21 @@ export function analyzeWorkflow(
     for (const file of input.files) files.set(file.path, file)
     documents = input.files
       .filter((file) => file.kind === 'dig' && file.text !== undefined)
-      .map((file) => parseDigdagDocument(file.text as string, { path: file.path }))
+      .map((file) => parseDigdagDocument(file.text as string, {
+        path: file.path,
+        resolveInclude: includeResolverFor(file.path, files),
+      }))
     schemas = schemasFromArchive(input, options, diagnostics)
     diagnostics.push(...input.diagnostics)
   } else {
-    documents = input.filter((entry) => entry.path.toLowerCase().endsWith('.dig')).map((entry) => parseDigdagDocument(entry.text, { path: entry.path }))
-    schemas = schemasFromEntries(input, diagnostics)
     for (const entry of input) files.set(entry.path, { path: entry.path, kind: entry.path.endsWith('.sql') ? 'sql' : 'binary', encoding: 'utf8', text: entry.text, bytes: new TextEncoder().encode(entry.text) })
+    documents = input
+      .filter((entry) => entry.path.toLowerCase().endsWith('.dig'))
+      .map((entry) => parseDigdagDocument(entry.text, {
+        path: entry.path,
+        resolveInclude: includeResolverFor(entry.path, files),
+      }))
+    schemas = schemasFromEntries(input, diagnostics)
   }
 
   const tasks = taskAnalyses(documents, files, diagnostics)
