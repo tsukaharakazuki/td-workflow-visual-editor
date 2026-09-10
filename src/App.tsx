@@ -86,6 +86,8 @@ import type {
 } from './types'
 import { TaskInspector } from './components/TaskInspector'
 import { WorkflowGraph } from './components/WorkflowGraph'
+import { GraphFilterBar, UNSPECIFIED } from './components/GraphFilterBar'
+import type { GraphFilterGroup, GraphFilterSelection } from './components/GraphFilterBar'
 import './App.css'
 
 type View = 'pipeline' | 'combined' | 'lineage' | 'files' | 'diagnostics' | 'guide'
@@ -1029,6 +1031,7 @@ function App() {
   const [selectedFilePath, setSelectedFilePath] = useState<string>()
   const [fileDraft, setFileDraft] = useState('')
   const [graphQuery, setGraphQuery] = useState('')
+  const [graphFilters, setGraphFilters] = useState<GraphFilterSelection>({})
   const [loading, setLoading] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [lineageSummaryOpen, setLineageSummaryOpen] = useState(false)
@@ -1299,6 +1302,54 @@ function App() {
     }
   }
 
+  const graphFilterGroups = useMemo<GraphFilterGroup[]>(() => {
+    if (!analysis) return []
+    const unique = (values: Array<string | undefined>) =>
+      [...new Set(values.map((value) => value?.trim() || UNSPECIFIED))].sort()
+    const tasks = view === 'lineage' ? [] : selectedDocument?.tasks ?? []
+    const tableNames = new Set<string>()
+    if (view !== 'pipeline') {
+      analysis.tasks.forEach((item) => {
+        item.sql?.sources.forEach((source) => tableNames.add(source.qualifiedName))
+        item.sql?.targets.forEach((target) => tableNames.add(target.qualifiedName))
+      })
+      analysis.tableLineage.forEach((record) => {
+        tableNames.add(record.source.qualifiedName)
+        tableNames.add(record.target.qualifiedName)
+      })
+    }
+    const tableDatabases = [...tableNames].map((name) => {
+      const parts = name.split('.')
+      return parts.length > 1 ? parts.slice(0, -1).join('.') : UNSPECIFIED
+    })
+
+    const groups: GraphFilterGroup[] = []
+    if (view === 'combined') {
+      groups.push({ id: 'kind', label: '種別', appliesTo: 'both', options: ['タスク', 'テーブル'] })
+    }
+    if (tasks.length > 0) {
+      const operators = unique(tasks.map((task) => task.operator === '_parallel' ? 'Parallel group' : task.operator ?? 'Group'))
+      if (operators.length > 1) groups.push({ id: 'operator', label: 'オペレーター', appliesTo: 'task', options: operators })
+      const engines = unique(tasks.map((task) => task.engine))
+      if (engines.length > 1) groups.push({ id: 'engine', label: 'Engine', appliesTo: 'task', options: engines })
+    }
+    const databases = unique([...tasks.map((task) => task.database), ...tableDatabases])
+    if (databases.length > 1) {
+      groups.push({ id: 'database', label: 'Database', appliesTo: view === 'pipeline' ? 'task' : 'both', options: databases })
+    }
+    return groups
+  }, [analysis, selectedDocument, view])
+
+  // Drop picks whose value no longer exists in the current view.
+  const activeGraphFilters = useMemo<GraphFilterSelection>(() => {
+    const valid: GraphFilterSelection = {}
+    for (const group of graphFilterGroups) {
+      const picked = graphFilters[group.id]?.filter((option) => group.options.includes(option)) ?? []
+      if (picked.length > 0) valid[group.id] = picked
+    }
+    return valid
+  }, [graphFilterGroups, graphFilters])
+
   const openFile = (fileOrPath: WorkflowFile | string) => {
     if (!archive) return
     const file = typeof fileOrPath === 'string' ? archive.files.find((item) => item.path === fileOrPath) : fileOrPath
@@ -1554,11 +1605,7 @@ function App() {
         <section className="workspace-content">
           {(view === 'pipeline' || view === 'combined' || view === 'lineage') && (
             <div className="graph-workspace">
-              <div className="graph-filter-strip" aria-label="Catalog filters">
-                {['Data Assets', 'Domains', 'Tier', 'Tags', 'Certification', 'Service', 'Service Type'].map((filter) => (
-                  <span className="graph-filter-chip" key={filter}>{filter}<ChevronDown size={12} /></span>
-                ))}
-              </div>
+              <GraphFilterBar groups={graphFilterGroups} selection={activeGraphFilters} onChange={setGraphFilters} />
               <div className="graph-toolbar">
                 <div className="graph-view-tabs" role="tablist" aria-label="Workflow visualization mode">
                   <button type="button" role="tab" aria-selected={view === 'pipeline'} className={view === 'pipeline' ? 'active' : ''} onClick={() => setView('pipeline')}><ListTree size={15} /> タスクの流れ</button>
@@ -1571,7 +1618,7 @@ function App() {
                 <span className="graph-legend">{view === 'lineage' ? <><i className="data" /> Data flow</> : <><i className="query" /> Query <i className="control" /> Control {view === 'combined' && <><i className="data" /> Data flow</>}</>}</span>
               </div>
               <div className={`graph-and-inspector ${(view === 'combined' || view === 'lineage') && !lineageSummaryOpen ? 'graph-full-width' : ''}`}>
-                <WorkflowGraph mode={view === 'pipeline' ? 'pipeline' : view === 'combined' ? 'combined' : 'lineage'} analysis={analysis} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelectTask={setSelectedTaskId} onDropOperator={addOperator} canvasRef={graphRef} searchQuery={graphQuery} />
+                <WorkflowGraph mode={view === 'pipeline' ? 'pipeline' : view === 'combined' ? 'combined' : 'lineage'} analysis={analysis} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelectTask={setSelectedTaskId} onDropOperator={addOperator} canvasRef={graphRef} searchQuery={graphQuery} filterGroups={graphFilterGroups} filterSelection={activeGraphFilters} />
                 {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} onParallelChange={updateParallelSettings} onRename={renameTask} onFieldsChange={updateTaskFields} onSqlSave={updateTaskSql} />}
                 {(view === 'combined' || view === 'lineage') && lineageSummaryOpen && (
                   <aside className="lineage-summary-panel">

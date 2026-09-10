@@ -13,6 +13,8 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import { Braces, ChevronDown, Database, EllipsisVertical, GitBranch, Layers3, Network, Repeat2, Search, Table2 } from 'lucide-react'
+import { passesGraphFilters, UNSPECIFIED } from './GraphFilterBar'
+import type { GraphFilterGroup, GraphFilterSelection } from './GraphFilterBar'
 import type {
   DigdagDocument,
   DigdagTaskNode,
@@ -32,6 +34,8 @@ interface WorkflowGraphProps {
   onDropOperator: (operator: string) => void
   canvasRef?: RefObject<HTMLDivElement | null>
   searchQuery?: string
+  filterGroups?: readonly GraphFilterGroup[]
+  filterSelection?: GraphFilterSelection
 }
 
 const NODE_WIDTH = 260
@@ -206,6 +210,40 @@ function searchClass(value: string, query: string): string {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return ''
   return value.toLowerCase().includes(normalized) ? ' is-search-match' : ' is-search-muted'
+}
+
+/** Filters dim what they exclude rather than removing it, so the shape of the graph stays readable. */
+interface GraphFilterContext {
+  groups: readonly GraphFilterGroup[]
+  selection: GraphFilterSelection
+}
+
+function taskFilterValues(task: DigdagTaskNode): Record<string, string> {
+  return {
+    kind: 'タスク',
+    operator: operatorLabel(task),
+    engine: task.engine?.trim() || UNSPECIFIED,
+    database: task.database?.trim() || UNSPECIFIED,
+  }
+}
+
+function tableFilterValues(name: string): Record<string, string> {
+  const parts = name.split('.')
+  return {
+    kind: 'テーブル',
+    database: parts.length > 1 ? parts.slice(0, -1).join('.') : UNSPECIFIED,
+  }
+}
+
+function nodeClass(
+  searchValue: string,
+  searchQuery: string,
+  filters: GraphFilterContext | undefined,
+  kind: 'task' | 'table',
+  values: Record<string, string>,
+): string {
+  if (filters && !passesGraphFilters(filters.groups, filters.selection, kind, values)) return ' is-filtered-out'
+  return searchClass(searchValue, searchQuery)
 }
 
 function tableSearchValue(name: string, analysis: WorkflowAnalysis): string {
@@ -436,6 +474,7 @@ function taskElements(
   document: DigdagDocument | undefined,
   selectedTaskId: string | undefined,
   searchQuery: string,
+  filters: GraphFilterContext | undefined,
 ): { nodes: Node[]; edges: Edge[] } {
   if (!document) return { nodes: [], edges: [] }
   const ids = new Set(document.tasks.map((task) => task.id))
@@ -444,7 +483,7 @@ function taskElements(
     type: 'anchored',
     position: { x: 0, y: 0 },
     data: { label: taskLabel(task) },
-    className: `workflow-node tone-${operatorTone(task.operator)}${selectedTaskId === task.id ? ' is-selected' : ''}${searchClass(`${task.name} ${operatorLabel(task)} ${task.documentPath} ${task.database ?? ''}`, searchQuery)}`,
+    className: `workflow-node tone-${operatorTone(task.operator)}${selectedTaskId === task.id ? ' is-selected' : ''}${nodeClass(`${task.name} ${operatorLabel(task)} ${task.documentPath} ${task.database ?? ''}`, searchQuery, filters, 'task', taskFilterValues(task))}`,
     style: { width: NODE_WIDTH, minHeight: NODE_HEIGHT },
   }))
   const edgeKeys = new Set<string>()
@@ -481,8 +520,9 @@ function pipelineElements(
   document: DigdagDocument | undefined,
   selectedTaskId: string | undefined,
   searchQuery: string,
+  filters: GraphFilterContext | undefined,
 ): { nodes: Node[]; edges: Edge[] } {
-  const elements = taskElements(analysis, document, selectedTaskId, searchQuery)
+  const elements = taskElements(analysis, document, selectedTaskId, searchQuery, filters)
   if (!document) return elements
   const rects = hierarchicalLayout({
     tasks: document.tasks,
@@ -500,8 +540,9 @@ function combinedElements(
   selectedTaskId: string | undefined,
   selectedDataNodeId: string | undefined,
   searchQuery: string,
+  filters: GraphFilterContext | undefined,
 ): { nodes: Node[]; edges: Edge[] } {
-  const taskGraph = taskElements(analysis, document, selectedTaskId, searchQuery)
+  const taskGraph = taskElements(analysis, document, selectedTaskId, searchQuery, filters)
   if (!document) return taskGraph
 
   const taskIds = new Set(document.tasks.map((task) => task.id))
@@ -537,7 +578,7 @@ function combinedElements(
     type: 'anchored',
     position: { x: 0, y: 0 },
     data: { label: <TableLabel name={name} analysis={analysis} template={templates.get(key)} /> },
-    className: `lineage-table-node workflow-data-node${selectedDataNodeId === `table:${key}` ? ' is-selected' : ''}${searchClass(tableSearchValue(name, analysis), searchQuery)}`,
+    className: `lineage-table-node workflow-data-node${selectedDataNodeId === `table:${key}` ? ' is-selected' : ''}${nodeClass(tableSearchValue(name, analysis), searchQuery, filters, 'table', tableFilterValues(name))}`,
     style: { width: TABLE_WIDTH, minHeight: TABLE_HEIGHT },
   }))
   const edges = [...taskGraph.edges]
@@ -576,7 +617,12 @@ function combinedElements(
   return { nodes, edges: assignEdgeAnchors(nodes, edges) }
 }
 
-function lineageElements(analysis: WorkflowAnalysis, selectedDataNodeId: string | undefined, searchQuery: string): { nodes: Node[]; edges: Edge[] } {
+function lineageElements(
+  analysis: WorkflowAnalysis,
+  selectedDataNodeId: string | undefined,
+  searchQuery: string,
+  filters: GraphFilterContext | undefined,
+): { nodes: Node[]; edges: Edge[] } {
   const names = new Set<string>()
   analysis.tableLineage.forEach((record) => {
     names.add(record.source.qualifiedName)
@@ -588,7 +634,7 @@ function lineageElements(analysis: WorkflowAnalysis, selectedDataNodeId: string 
     type: 'anchored',
     position: { x: 0, y: 0 },
     data: { label: <TableLabel name={name} analysis={analysis} template={templates.get(name.toLowerCase())} /> },
-    className: `lineage-table-node${selectedDataNodeId === `table:${name}` ? ' is-selected' : ''}${searchClass(tableSearchValue(name, analysis), searchQuery)}`,
+    className: `lineage-table-node${selectedDataNodeId === `table:${name}` ? ' is-selected' : ''}${nodeClass(tableSearchValue(name, analysis), searchQuery, filters, 'table', tableFilterValues(name))}`,
     style: { width: TABLE_WIDTH, minHeight: TABLE_HEIGHT },
   }))
   const taskById = new Map(analysis.tasks.map((item) => [item.task.id, item.task]))
@@ -614,15 +660,21 @@ export function WorkflowGraph({
   onDropOperator,
   canvasRef,
   searchQuery = '',
+  filterGroups,
+  filterSelection,
 }: WorkflowGraphProps) {
   const [selectedDataNodeId, setSelectedDataNodeId] = useState<string>()
+  const filters = useMemo<GraphFilterContext | undefined>(
+    () => filterGroups && filterSelection ? { groups: filterGroups, selection: filterSelection } : undefined,
+    [filterGroups, filterSelection],
+  )
   const elements = useMemo(
     () => mode === 'pipeline'
-      ? pipelineElements(analysis, document, selectedTaskId, searchQuery)
+      ? pipelineElements(analysis, document, selectedTaskId, searchQuery, filters)
       : mode === 'combined'
-        ? combinedElements(analysis, document, selectedTaskId, selectedDataNodeId, searchQuery)
-        : lineageElements(analysis, selectedDataNodeId, searchQuery),
-    [analysis, document, mode, searchQuery, selectedDataNodeId, selectedTaskId],
+        ? combinedElements(analysis, document, selectedTaskId, selectedDataNodeId, searchQuery, filters)
+        : lineageElements(analysis, selectedDataNodeId, searchQuery, filters),
+    [analysis, document, filters, mode, searchQuery, selectedDataNodeId, selectedTaskId],
   )
 
   if (elements.nodes.length === 0) {

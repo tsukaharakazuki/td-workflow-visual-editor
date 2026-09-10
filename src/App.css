@@ -1181,12 +1181,14 @@ button:disabled {
 }
 
 .graph-filter-strip {
+  position: relative;
+  z-index: 20;
   display: flex;
   min-width: 0;
-  padding: 0 14px;
+  padding: 5px 14px;
   align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
-  overflow: hidden;
   background: #fff;
   border-bottom: 1px solid #e6ebf1;
 }
@@ -3698,4 +3700,125 @@ button:disabled {
 .property-list dd {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Graph filters: each chip opens a checklist of values found in the workflow. */
+.graph-filter {
+  position: relative;
+}
+
+.graph-filter-strip .graph-filter-chip {
+  cursor: pointer;
+}
+
+.graph-filter-chip.is-active {
+  color: #1f5fae;
+  font-weight: 600;
+  background: #e8f1fb;
+}
+
+.graph-filter-chip > small {
+  display: inline-flex;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 8px;
+  background: #2f6db2;
+  border-radius: 999px;
+}
+
+.graph-filter-chip svg.is-open {
+  transform: rotate(180deg);
+}
+
+.graph-filter-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  min-width: 190px;
+  max-width: 300px;
+  max-height: 300px;
+  padding: 8px;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #d7e0ea;
+  border-radius: 9px;
+  box-shadow: 0 12px 30px rgba(31, 45, 61, 0.16);
+}
+
+.graph-filter-menu label {
+  display: flex;
+  padding: 5px 6px;
+  align-items: center;
+  gap: 7px;
+  color: #33465c;
+  font-size: 11px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.graph-filter-menu label:hover {
+  background: #f2f7fc;
+}
+
+.graph-filter-menu label input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: #2f6db2;
+  flex: none;
+}
+
+.graph-filter-menu label span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-filter-clear {
+  margin-top: 4px;
+  padding: 5px 6px;
+  color: #7b8ca0;
+  font-size: 10px;
+  text-align: left;
+  background: transparent;
+  border-top: 1px solid #eef2f7;
+}
+
+.graph-filter-clear:hover {
+  color: #1f5fae;
+}
+
+.graph-filter-reset {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 0 8px;
+  min-height: 24px;
+  align-items: center;
+  gap: 4px;
+  color: #6b7c91;
+  font-size: 9px;
+  white-space: nowrap;
+  background: #f2f5f9;
+  border-radius: 5px;
+}
+
+.graph-filter-reset:hover {
+  color: #1f5fae;
+  background: #e8f1fb;
+}
+
+/* Excluded by a filter: still laid out, but pushed to the background. */
+.react-flow__node.is-filtered-out {
+  opacity: 0.16;
+  filter: grayscale(0.7);
+  pointer-events: none;
 }
