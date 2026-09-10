@@ -652,16 +652,44 @@ function ImportScreen({ onFile, onSample, loading }: {
   )
 }
 
+/** Collapsible heading shared by every sidebar section. */
+function SidebarSectionHead({ label, meta, open, onToggle }: {
+  label: string
+  meta?: ReactNode
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className="sidebar-section-head">
+      <button
+        className="sidebar-section-toggle"
+        type="button"
+        aria-expanded={open}
+        title={open ? `${label}を隠す` : `${label}を表示`}
+        onClick={onToggle}
+      >
+        <ChevronDown size={12} className={open ? '' : 'is-collapsed'} />
+        <span className="sidebar-section-label">{label}</span>
+      </button>
+      {meta !== undefined && <span className="sidebar-section-meta">{meta}</span>}
+    </div>
+  )
+}
+
 function SidebarNav({
   view,
   onView,
   diagnostics,
   collapsed,
+  open,
+  onToggle,
 }: {
   view: View
   onView: (view: View) => void
   diagnostics: number
   collapsed: boolean
+  open: boolean
+  onToggle: () => void
 }) {
   const items: Array<{ id: View; label: string; icon: typeof GitBranch; badge?: number }> = [
     { id: 'pipeline', label: 'Task Flow', icon: ListTree },
@@ -673,8 +701,8 @@ function SidebarNav({
   ]
   return (
     <nav className="sidebar-nav" aria-label="Workspace">
-      <p className="sidebar-section-label">Workspace</p>
-      {items.map((item) => {
+      {!collapsed && <SidebarSectionHead label="Workspace" open={open} onToggle={onToggle} />}
+      {(open || collapsed) && items.map((item) => {
         const Icon = item.icon
         return (
           <button key={item.id} type="button" className={view === item.id ? 'active' : ''} onClick={() => onView(item.id)} title={collapsed ? item.label : undefined}>
@@ -688,17 +716,20 @@ function SidebarNav({
   )
 }
 
-function OperatorPalette({ onAddOperator, selectedTask }: { onAddOperator: (operator: string) => void; selectedTask?: DigdagTaskNode }) {
+function OperatorPalette({ onAddOperator, selectedTask, open, onToggle }: {
+  onAddOperator: (operator: string) => void
+  selectedTask?: DigdagTaskNode
+  open: boolean
+  onToggle: () => void
+}) {
   const [showMore, setShowMore] = useState(false)
   const initialOperators = OPERATOR_PALETTE.slice(0, INITIAL_OPERATOR_COUNT)
   const addInside = selectedTask?.operators.includes('_parallel') || (selectedTask !== undefined && !selectedTask.operator)
 
   return (
-    <section className="operator-palette">
-      <div className="sidebar-section-label-row">
-        <p className="sidebar-section-label">Add task</p>
-        <span>Drag or click</span>
-      </div>
+    <section className={`operator-palette ${open ? '' : 'is-section-collapsed'}`}>
+      <SidebarSectionHead label="Add task" meta="Drag or click" open={open} onToggle={onToggle} />
+      {!open ? null : <>
       <div className="operator-insert-target">
         <GitBranch size={13} />
         <span>{selectedTask ? (addInside ? 'Inside parallel group' : 'Add after') : 'Select a task'}</span>
@@ -736,6 +767,7 @@ function OperatorPalette({ onAddOperator, selectedTask }: { onAddOperator: (oper
           </div>
         </div>
       )}
+      </>}
     </section>
   )
 }
@@ -746,17 +778,24 @@ function TaskTree({
   onSelect,
   onReorder,
   onDeleteDrop,
+  open,
+  onToggle,
 }: {
   document?: DigdagDocument
   selectedTaskId?: string
   onSelect: (taskId: string) => void
   onReorder: (draggedId: string, targetId: string) => void
   onDeleteDrop: (taskId: string) => void
+  open: boolean
+  onToggle: () => void
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(
     document?.tasks.filter((task) => task.children.length > 0).map((task) => task.id) ?? [],
   ))
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
+  // The sidebar scrolls as one column, so revealing a row moves the whole
+  // sidebar. Skip the very first selection to keep the nav in view on load.
+  const autoScrollArmed = useRef(false)
 
   useEffect(() => {
     if (!document || !selectedTaskId) return
@@ -777,6 +816,10 @@ function TaskTree({
         })
       }
       scrollFrame = window.requestAnimationFrame(() => {
+        if (!autoScrollArmed.current) {
+          autoScrollArmed.current = true
+          return
+        }
         rowRefs.current.get(selectedTaskId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
       })
     })
@@ -853,11 +896,9 @@ function TaskTree({
   })
 
   return (
-    <section className="task-tree-panel">
-      <div className="sidebar-section-label-row">
-        <p className="sidebar-section-label">Task tree</p>
-        <span>{document.tasks.length}</span>
-      </div>
+    <section className={`task-tree-panel ${open ? '' : 'is-section-collapsed'}`}>
+      <SidebarSectionHead label="Task tree" meta={document.tasks.length} open={open} onToggle={onToggle} />
+      {!open ? null : <>
       <div className="task-tree-scroll">{renderGroup('ROOT', 0)}</div>
       <div
         className="trash-dropzone"
@@ -874,6 +915,7 @@ function TaskTree({
       >
         <Trash2 size={14} /> ドロップして削除（Undo可能）
       </div>
+      </>}
     </section>
   )
 }
@@ -993,6 +1035,9 @@ function App() {
   const importInputRef = useRef<HTMLInputElement>(null)
   const graphRef = useRef<HTMLDivElement>(null)
   const htmlExportRef = useRef<HTMLDivElement>(null)
+  const [openSections, setOpenSections] = useState({ workspace: true, addTask: true, taskTree: true })
+  const toggleSection = (key: keyof typeof openSections) =>
+    setOpenSections((current) => ({ ...current, [key]: !current[key] }))
   const [htmlExportOpen, setHtmlExportOpen] = useState(false)
   const [htmlIncludeTasks, setHtmlIncludeTasks] = useState(false)
   const [htmlIncludeLineage, setHtmlIncludeLineage] = useState(false)
@@ -1387,11 +1432,13 @@ function App() {
           <img src={`${import.meta.env.BASE_URL}brand/treasure-ai-master-logo.svg`} alt="Treasure AI" />
           {!sidebarCollapsed && <><span /><p><strong>Workflow</strong><small>Visual Editor</small></p></>}
         </div>
-        <SidebarNav view={view} onView={setView} diagnostics={diagnostics.length} collapsed={sidebarCollapsed} />
-        {!sidebarCollapsed && (view === 'pipeline' || view === 'combined') && <OperatorPalette onAddOperator={addOperator} selectedTask={selectedTaskAnalysis?.task} />}
-        {!sidebarCollapsed && (view === 'pipeline' || view === 'combined') && (
-          <TaskTree key={selectedDocument?.path} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelect={setSelectedTaskId} onReorder={reorderTask} onDeleteDrop={deleteTaskById} />
-        )}
+        <div className="sidebar-scroll">
+          <SidebarNav view={view} onView={setView} diagnostics={diagnostics.length} collapsed={sidebarCollapsed} open={openSections.workspace} onToggle={() => toggleSection('workspace')} />
+          {!sidebarCollapsed && (view === 'pipeline' || view === 'combined') && <OperatorPalette onAddOperator={addOperator} selectedTask={selectedTaskAnalysis?.task} open={openSections.addTask} onToggle={() => toggleSection('addTask')} />}
+          {!sidebarCollapsed && (view === 'pipeline' || view === 'combined') && (
+            <TaskTree key={selectedDocument?.path} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelect={setSelectedTaskId} onReorder={reorderTask} onDeleteDrop={deleteTaskById} open={openSections.taskTree} onToggle={() => toggleSection('taskTree')} />
+          )}
+        </div>
         <div className="sidebar-privacy"><LockKeyhole size={15} />{!sidebarCollapsed && <span><strong>Local processing</strong><small>No API connection</small></span>}</div>
       </aside>
 

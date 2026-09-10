@@ -512,15 +512,43 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.sidebar-section-label-row {
+.sidebar-section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
-.sidebar-section-label-row > span {
+.sidebar-section-meta {
   color: #aaa7b3;
   font-size: 9px;
+  flex: none;
+}
+
+.sidebar-section-toggle {
+  display: flex;
+  min-width: 0;
+  padding: 3px 0;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.sidebar-section-toggle > svg {
+  color: #b6b3c0;
+  flex: none;
+  transition: transform 140ms ease;
+}
+
+.sidebar-section-toggle > svg.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.sidebar-section-toggle:hover > svg,
+.sidebar-section-toggle:hover > .sidebar-section-label {
+  color: #6a6778;
 }
 
 .sidebar-nav {
@@ -530,11 +558,11 @@ button:disabled {
   border-bottom: 1px solid var(--border);
 }
 
-.sidebar-nav > .sidebar-section-label {
+.sidebar-nav > .sidebar-section-head {
   padding: 0 9px 7px;
 }
 
-.sidebar-nav button {
+.sidebar-nav > button {
   position: relative;
   display: flex;
   min-height: 39px;
@@ -549,7 +577,7 @@ button:disabled {
   border-radius: 8px;
 }
 
-.sidebar-nav button::before {
+.sidebar-nav > button::before {
   position: absolute;
   top: 8px;
   bottom: 8px;
@@ -560,26 +588,26 @@ button:disabled {
   border-radius: 0 3px 3px 0;
 }
 
-.sidebar-nav button:hover {
+.sidebar-nav > button:hover {
   color: #393746;
   background: #f7f6fb;
 }
 
-.sidebar-nav button.active {
+.sidebar-nav > button.active {
   color: var(--primary-1);
   font-weight: 600;
   background: #f0efff;
 }
 
-.sidebar-nav button.active::before {
+.sidebar-nav > button.active::before {
   background: linear-gradient(var(--primary-1), var(--primary-2));
 }
 
-.sidebar-nav button > span {
+.sidebar-nav > button > span {
   flex: 1;
 }
 
-.sidebar-nav button > small {
+.sidebar-nav > button > small {
   display: flex;
   min-width: 18px;
   height: 18px;
@@ -600,12 +628,12 @@ button:disabled {
   display: none;
 }
 
-.sidebar-collapsed .sidebar-nav button {
+.sidebar-collapsed .sidebar-nav > button {
   justify-content: center;
   padding: 0;
 }
 
-.sidebar-collapsed .sidebar-nav button::before {
+.sidebar-collapsed .sidebar-nav > button::before {
   left: -10px;
 }
 
@@ -816,22 +844,38 @@ button:disabled {
   color: #b1aebb;
 }
 
-.task-tree-panel {
+.sidebar-scroll {
   display: flex;
   min-height: 0;
-  padding: 13px 11px 11px;
   flex: 1;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.task-tree-panel {
+  display: flex;
+  padding: 13px 11px 11px;
+  flex: 1 0 auto;
   flex-direction: column;
 }
 
-.task-tree-panel > .sidebar-section-label-row {
+.task-tree-panel > .sidebar-section-head {
   padding: 0 8px 8px;
 }
 
+.task-tree-panel.is-section-collapsed,
+.operator-palette.is-section-collapsed {
+  flex: none;
+  padding-bottom: 11px;
+}
+
+.task-tree-panel.is-section-collapsed > .sidebar-section-head {
+  padding-bottom: 0;
+}
+
 .task-tree-scroll {
-  min-height: 0;
-  overflow: auto;
-  flex: 1;
+  flex: 1 0 auto;
 }
 
 .task-tree-row {
@@ -2968,22 +3012,22 @@ button:disabled {
   border-bottom-color: #e2e7ee;
 }
 
-.sidebar-nav button {
+.sidebar-nav > button {
   color: #53657a;
   border-radius: 6px;
 }
 
-.sidebar-nav button:hover {
+.sidebar-nav > button:hover {
   color: #1f4f87;
   background: #f0f4f9;
 }
 
-.sidebar-nav button.active {
+.sidebar-nav > button.active {
   color: #1f5fae;
   background: #e8f0fb;
 }
 
-.sidebar-nav button.active::before {
+.sidebar-nav > button.active::before {
   background: #2f6db2;
 }
 
@@ -3394,13 +3438,13 @@ button:disabled {
   .app-sidebar .sidebar-brand > span,
   .app-sidebar .sidebar-brand > p,
   .app-sidebar .sidebar-nav > p,
-  .app-sidebar .sidebar-nav button > span,
-  .app-sidebar .sidebar-nav button > small,
+  .app-sidebar .sidebar-nav > button > span,
+  .app-sidebar .sidebar-nav > button > small,
   .app-sidebar .operator-palette,
   .app-sidebar .task-tree-panel,
   .app-sidebar .sidebar-privacy span { display: none; }
   .app-sidebar .sidebar-nav { padding: 17px 10px; }
-  .app-sidebar .sidebar-nav button { justify-content: center; padding: 0; }
+  .app-sidebar .sidebar-nav > button { justify-content: center; padding: 0; }
   .app-sidebar .sidebar-privacy { justify-content: center; padding: 0; }
   .graph-and-inspector { grid-template-columns: minmax(0, 1fr); }
   .inspector-panel,
