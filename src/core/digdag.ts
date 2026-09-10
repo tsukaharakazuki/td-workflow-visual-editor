@@ -227,9 +227,9 @@ function inlineOperatorBody(
       const key = keyString(pair)
       if (!key || key.startsWith('+')) continue
       if (key !== '_do' && key !== '_parallel' && !key.endsWith('>')) continue
-      for (const child of collectionChildren(pair.value)) {
-        const childMap = mapFor(child)
-        if (childMap) queue.push({ map: childMap, scopes: levelScopes, path: [...current.path, key] })
+      for (const child of pathedChildren(pair.value, [...current.path, key])) {
+        const childMap = mapFor(child.value)
+        if (childMap) queue.push({ map: childMap, scopes: levelScopes, path: child.path })
       }
     }
   }
@@ -311,9 +311,14 @@ function addParseDiagnostics(
   return diagnostics
 }
 
-function collectionChildren(value: unknown): Iterable<unknown> {
-  if (isMap(value)) return [value]
-  if (isSeq(value)) return value.items
+/**
+ * The children of a structural node, each with its own YAML path. A sequence
+ * contributes an index to the path, which `Document.getIn` needs to find the
+ * node again.
+ */
+function pathedChildren(value: unknown, path: YamlPath): Array<{ value: unknown; path: YamlPath }> {
+  if (isMap(value)) return [{ value, path }]
+  if (isSeq(value)) return value.items.map((item, index) => ({ value: item, path: [...path, index] }))
   return []
 }
 
@@ -360,15 +365,16 @@ export function parseDigdagDocument(
     names: readonly string[],
     scopes: readonly VariableScope[],
   ): void => {
-    for (const collection of collectionChildren(value)) {
-      const map = mapFor(collection)
+    for (const collection of pathedChildren(value, parentPath)) {
+      const map = mapFor(collection.value)
       if (!map) continue
       const levelScopes = scopesForLevel(map, scopes, text, options.resolveInclude)
       for (const pair of map.items) {
         const name = keyString(pair)
         if (!name) continue
         if (name.startsWith('+')) {
-          const taskPath = [...parentPath, name]
+          // The path keeps every structural key, so editing can find the node.
+          const taskPath = [...collection.path, name]
           const body = mapFor(pair.value)
           if (!body) {
             diagnostics.push({
@@ -425,7 +431,7 @@ export function parseDigdagDocument(
 
         const isStructural = name === '_do' || name === '_parallel' || name.endsWith('>')
         if (isStructural && (isMap(pair.value) || isSeq(pair.value))) {
-          visitContainer(pair.value, parent, parentPath, context, depth, names, levelScopes)
+          visitContainer(pair.value, parent, [...collection.path, name], context, depth, names, levelScopes)
         }
       }
     }
@@ -445,6 +451,15 @@ export function reparseDigdagDocument(
 
 export function serializeDigdagDocument(document: DigdagDocument): string {
   return document.document.toString()
+}
+
+/**
+ * Where a task's subtasks belong. A task that drives its children through
+ * `_do` (a loop or a conditional) keeps them there rather than in its own body.
+ */
+export function digdagChildContainer(body: YAMLMap): YAMLMap {
+  const doValue = mapFor(valueFor(body, '_do'))
+  return doValue ?? body
 }
 
 export function findDigdagTask(

@@ -7,7 +7,7 @@ import type {
   DigdagParallelSettings,
   DigdagTaskNode,
 } from '../types/workflow'
-import { findDigdagTask, reparseDigdagDocument } from './digdag'
+import { digdagChildContainer, findDigdagTask, reparseDigdagDocument } from './digdag'
 
 function pairKey(pair: Pair): string | undefined {
   const key = pair.key as { value?: unknown } | unknown
@@ -93,7 +93,7 @@ export function addChildTask(
 ): DigdagEditResult {
   const parent = taskOrThrow(document, parentId)
   const edited = document.document.clone()
-  const editedParent = taskBody(edited, parent)
+  const editedParent = digdagChildContainer(taskBody(edited, parent))
   const normalizedName = normalizedTaskName(name)
   if (editedParent.items.some((pair) => pairKey(pair) === normalizedName)) {
     throw new DigdagEditError('duplicate-child', `Child already exists: ${normalizedName}`)

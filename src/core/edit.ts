@@ -10,7 +10,7 @@ import type {
   DigdagTaskNode,
   YamlPath,
 } from '../types/workflow'
-import { findDigdagTask, reparseDigdagDocument } from './digdag'
+import { digdagChildContainer, findDigdagTask, reparseDigdagDocument } from './digdag'
 
 function pairKey(pair: Pair): string | undefined {
   const key = pair.key as { value?: unknown } | unknown
@@ -111,7 +111,7 @@ function restoreTask(
   const parent = edit.parentId ? taskOrThrow(original, edit.parentId) : undefined
   const path = parent?.yamlPath ?? []
   const edited = original.document.clone()
-  const map = mapAt(edited, path)
+  const map = parent ? digdagChildContainer(mapAt(edited, path)) : mapAt(edited, path)
   const name = normalizedTaskName(edit.name)
   if (taskPairAt(map, name)) throw new DigdagEditError('duplicate-sibling', `Sibling already exists: ${name}`)
   const pairs = siblingTaskPairs(map)
