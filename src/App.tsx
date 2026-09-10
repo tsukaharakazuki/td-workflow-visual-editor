@@ -35,6 +35,7 @@ import {
   GitBranch,
   GitFork,
   GripVertical,
+  History,
   ImageDown,
   Info,
   Layers3,
@@ -86,6 +87,8 @@ import type {
 } from './types'
 import { TaskInspector } from './components/TaskInspector'
 import { WorkflowGraph } from './components/WorkflowGraph'
+import { ReleaseLogDialog } from './components/ReleaseLogDialog'
+import { RELEASE_LOG } from './releaseLog'
 import { GraphFilterBar, UNSPECIFIED } from './components/GraphFilterBar'
 import type { GraphFilterGroup, GraphFilterSelection } from './components/GraphFilterBar'
 import './App.css'
@@ -1032,6 +1035,7 @@ function App() {
   const [fileDraft, setFileDraft] = useState('')
   const [graphQuery, setGraphQuery] = useState('')
   const [graphFilters, setGraphFilters] = useState<GraphFilterSelection>({})
+  const [releaseLogOpen, setReleaseLogOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [lineageSummaryOpen, setLineageSummaryOpen] = useState(false)
@@ -1543,7 +1547,15 @@ function App() {
             <TaskTree key={selectedDocument?.path} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelect={setSelectedTaskId} onReorder={reorderTask} onDeleteDrop={deleteTaskById} open={openSections.taskTree} onToggle={() => toggleSection('taskTree')} />
           )}
         </div>
-        <div className="sidebar-privacy"><LockKeyhole size={15} />{!sidebarCollapsed && <span><strong>Local processing</strong><small>No API connection</small></span>}</div>
+        <button
+          className="sidebar-privacy"
+          type="button"
+          title={`Release log — 最終更新 ${RELEASE_LOG[0]?.at ?? '—'}`}
+          onClick={() => setReleaseLogOpen(true)}
+        >
+          <LockKeyhole size={15} />
+          {!sidebarCollapsed && <><span><strong>Local processing</strong><small>No API connection</small></span><History size={14} className="sidebar-privacy-hint" /></>}
+        </button>
       </aside>
 
       <main className="workspace-main">
@@ -1638,6 +1650,7 @@ function App() {
 
       {toast && <div className={`toast toast-${toast.type}`}>{toast.type === 'success' ? <Check size={17} /> : toast.type === 'error' ? <AlertTriangle size={17} /> : <Info size={17} />}<span>{toast.message}</span></div>}
       {loading && <div className="loading-overlay"><LoaderCircle className="spin" size={28} /><strong>ZIPを端末内で解析中...</strong></div>}
+      {releaseLogOpen && <ReleaseLogDialog onClose={() => setReleaseLogOpen(false)} />}
     </div>
   )
 }

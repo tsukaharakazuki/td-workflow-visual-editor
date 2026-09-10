@@ -3828,3 +3828,126 @@ button:disabled {
   filter: grayscale(0.7);
   pointer-events: none;
 }
+
+/* Release log: opened from the sidebar footer, which is otherwise decorative. */
+button.sidebar-privacy {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+button.sidebar-privacy:hover {
+  background: #f4f8fc;
+}
+
+button.sidebar-privacy:hover .sidebar-privacy-hint {
+  opacity: 1;
+}
+
+.sidebar-privacy-hint {
+  margin-left: auto;
+  color: #93a3b5;
+  opacity: 0;
+  flex: none;
+  transition: opacity 140ms ease;
+}
+
+.release-log-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  padding: 24px;
+  align-items: center;
+  justify-content: center;
+  background: rgba(24, 36, 51, 0.34);
+}
+
+.release-log-panel {
+  display: flex;
+  width: min(620px, 100%);
+  max-height: min(680px, 100%);
+  flex-direction: column;
+  background: #fff;
+  border-radius: 13px;
+  box-shadow: 0 24px 60px rgba(24, 36, 51, 0.28);
+}
+
+.release-log-panel > header {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  padding: 15px 16px;
+  align-items: center;
+  gap: 11px;
+  border-bottom: 1px solid var(--border);
+}
+
+.release-log-panel > header > span {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  color: #2f6db2;
+  background: #e8f1fb;
+  border-radius: 9px;
+}
+
+.release-log-panel > header p {
+  color: #9aa7b6;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.release-log-panel > header h2 {
+  color: #23405f;
+  font-size: 15px;
+}
+
+.release-log-scroll {
+  padding: 6px 16px 16px;
+  overflow-y: auto;
+}
+
+.release-log-scroll article {
+  padding: 13px 0 13px 15px;
+  border-left: 2px solid #dfe7f0;
+}
+
+.release-log-scroll article:first-child {
+  border-left-color: #4f8fc4;
+}
+
+.release-log-scroll time {
+  display: block;
+  margin-bottom: 4px;
+  color: #7b8ca0;
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10px;
+}
+
+.release-log-scroll article > p {
+  color: #23405f;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.release-log-scroll ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: #62748a;
+  font-size: 11px;
+  line-height: 1.75;
+  list-style: disc;
+}
+
+.release-log-empty {
+  padding: 30px 0;
+  color: #8a97a6;
+  font-size: 12px;
+  text-align: center;
+}
