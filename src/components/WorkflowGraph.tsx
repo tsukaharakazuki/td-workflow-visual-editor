@@ -721,7 +721,9 @@ export function WorkflowGraph({
         edges={elements.edges}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.12, minZoom: mode === 'lineage' ? 0.45 : 0.12, maxZoom: 1.15 }}
+        // Every mode may zoom out as far as it needs: clamping the fit leaves
+        // part of the graph off-screen, which is worse than small cards.
+        fitViewOptions={{ padding: 0.12, minZoom: 0.1, maxZoom: 1.15 }}
         minZoom={0.1}
         maxZoom={1.8}
         nodesDraggable={false}
