@@ -5,6 +5,7 @@ export type {
   DigdagDocument,
   DigdagEdit,
   DigdagEditResult,
+  DigdagParallelSettings,
   DigdagParseOptions,
   DigdagTaskNode,
   PipelineEdge,

@@ -62,17 +62,20 @@ import {
 import { toPng } from 'html-to-image'
 import { jsPDF } from 'jspdf'
 import {
+  addChildTask,
   addSiblingTask,
   analyzeWorkflow,
   deleteDigdagTask,
   exportWorkflowZip,
   ingestWorkflowZip,
   reorderSiblingTasks,
+  setTaskParallel,
   updateWorkflowFileText,
 } from './core'
 import type {
   Diagnostic,
   DigdagDocument,
+  DigdagParallelSettings,
   DigdagTaskNode,
   WorkflowAnalysis,
   WorkflowArchive,
@@ -94,6 +97,7 @@ const OPERATOR_PALETTE = [
   { operator: 'td>', label: 'TD Query', description: 'SQLを実行', category: 'Treasure Data', icon: Database, tone: 'query' },
   { operator: 'if>', label: 'Condition', description: '条件分岐', category: '制御', icon: GitBranch, tone: 'control' },
   { operator: 'for_each>', label: 'For Each', description: '値ごとに繰り返し', category: '制御', icon: Repeat2, tone: 'control' },
+  { operator: '_parallel', label: 'Parallel Group', description: '子タスクを並列実行', category: '制御', icon: GitFork, tone: 'control' },
   { operator: 'call>', label: 'Call', description: '別Workflowを呼び出す', category: '制御', icon: Layers3, tone: 'reference' },
   { operator: 'echo>', label: 'Echo', description: 'メッセージを表示', category: '制御', icon: Braces, tone: 'neutral' },
   { operator: 'py>', label: 'Python', description: 'Pythonを実行', category: 'スクリプト', icon: Code2, tone: 'script' },
@@ -136,7 +140,7 @@ const OPERATOR_PALETTE = [
   { operator: 'param_set>', label: 'Param Set', description: '永続パラメータを保存', category: 'Digdag / その他', icon: Settings2, tone: 'neutral' },
 ] as const
 
-const INITIAL_OPERATOR_COUNT = 6
+const INITIAL_OPERATOR_COUNT = 7
 const OPERATOR_CATEGORIES = [...new Set(OPERATOR_PALETTE.map((item) => item.category))] as const
 
 type OperatorPaletteItem = (typeof OPERATOR_PALETTE)[number]
@@ -429,15 +433,21 @@ function SidebarNav({
   )
 }
 
-function OperatorPalette({ onAddOperator }: { onAddOperator: (operator: string) => void }) {
+function OperatorPalette({ onAddOperator, selectedTask }: { onAddOperator: (operator: string) => void; selectedTask?: DigdagTaskNode }) {
   const [showMore, setShowMore] = useState(false)
   const initialOperators = OPERATOR_PALETTE.slice(0, INITIAL_OPERATOR_COUNT)
+  const addInside = selectedTask?.operators.includes('_parallel') || (selectedTask !== undefined && !selectedTask.operator)
 
   return (
     <section className="operator-palette">
       <div className="sidebar-section-label-row">
         <p className="sidebar-section-label">Add task</p>
         <span>Drag or click</span>
+      </div>
+      <div className="operator-insert-target">
+        <GitBranch size={13} />
+        <span>{selectedTask ? (addInside ? 'Inside parallel group' : 'Add after') : 'Select a task'}</span>
+        {selectedTask && <strong title={selectedTask.name}>{selectedTask.name.replace(/^\+/, '')}</strong>}
       </div>
       <div className="operator-grid">
         {operatorCards(initialOperators, onAddOperator)}
@@ -455,7 +465,7 @@ function OperatorPalette({ onAddOperator }: { onAddOperator: (operator: string) 
       {showMore && (
         <div className="operator-more-panel" role="dialog" aria-label="All Workflow operators">
           <div className="operator-more-header">
-            <div><strong>All operators</strong><small>{OPERATOR_PALETTE.length} operators available</small></div>
+            <div><strong>All operators</strong><small>43 operators + Parallel Group</small></div>
             <button className="icon-button" type="button" aria-label="Close operator picker" onClick={() => setShowMore(false)}><X size={15} /></button>
           </div>
           <div className="operator-more-scroll">
@@ -491,6 +501,35 @@ function TaskTree({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(
     document?.tasks.filter((task) => task.children.length > 0).map((task) => task.id) ?? [],
   ))
+  const rowRefs = useRef(new Map<string, HTMLDivElement>())
+
+  useEffect(() => {
+    if (!document || !selectedTaskId) return
+    const tasks = new Map(document.tasks.map((task) => [task.id, task]))
+    const ancestors: string[] = []
+    let current = tasks.get(selectedTaskId)
+    while (current?.parentId) {
+      ancestors.push(current.parentId)
+      current = tasks.get(current.parentId)
+    }
+    let scrollFrame = 0
+    const expandFrame = window.requestAnimationFrame(() => {
+      if (ancestors.length > 0) {
+        setExpanded((existing) => {
+          const next = new Set(existing)
+          ancestors.forEach((id) => next.add(id))
+          return next
+        })
+      }
+      scrollFrame = window.requestAnimationFrame(() => {
+        rowRefs.current.get(selectedTaskId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      })
+    })
+    return () => {
+      window.cancelAnimationFrame(expandFrame)
+      window.cancelAnimationFrame(scrollFrame)
+    }
+  }, [document, selectedTaskId])
 
   if (!document) return null
   const byParent = new Map<string, DigdagTaskNode[]>()
@@ -507,7 +546,12 @@ function TaskTree({
     return (
       <div key={task.id}>
         <div
+          ref={(node) => {
+            if (node) rowRefs.current.set(task.id, node)
+            else rowRefs.current.delete(task.id)
+          }}
           className={`task-tree-row ${selectedTaskId === task.id ? 'active' : ''}`}
+          aria-current={selectedTaskId === task.id ? 'true' : undefined}
           style={{ paddingLeft: 10 + depth * 14 }}
           draggable
           onDragStart={(event) => {
@@ -545,6 +589,7 @@ function TaskTree({
           </button>
           <span className="task-operator-dot" />
           <p><strong>{task.name.replace(/^\+/, '')}</strong><small>{task.operator ?? 'group'}</small></p>
+          {selectedTaskId === task.id && <span className="task-tree-target">ADD</span>}
           <GripVertical className="tree-grip" size={13} />
         </div>
         {open && renderGroup(task.id, depth + 1)}
@@ -814,18 +859,22 @@ function App() {
       setToast({ type: 'error', message: '空のWorkflowにはソース画面から最初のタスクを追加してください' })
       return
     }
+    const insertInside = sibling.operators.includes('_parallel') || !sibling.operator
+    const insertionParentId = insertInside ? sibling.id : sibling.parentId
     const stemMap: Record<string, string> = {
-      'td>': 'query', 'if>': 'condition', 'for_each>': 'for_each', 'call>': 'call_workflow', 'echo>': 'echo', 'py>': 'python_task',
+      'td>': 'query', 'if>': 'condition', 'for_each>': 'for_each', '_parallel': 'parallel_group', 'call>': 'call_workflow', 'echo>': 'echo', 'py>': 'python_task',
     }
     const stem = stemMap[operator] ?? (operator.replace(/>$/, '').replace(/[^A-Za-z0-9]+/g, '_') || 'task')
-    const siblings = selectedDocument.tasks.filter((task) => task.parentId === sibling.parentId)
+    const siblings = selectedDocument.tasks.filter((task) => task.parentId === insertionParentId)
     let sequence = 1
     let name = stem
     while (siblings.some((task) => task.name === `+${name}`)) { sequence += 1; name = `${stem}_${sequence}` }
 
     let value: Record<string, unknown>
     let nextArchive = archive
-    if (operator === 'td>') {
+    if (operator === '_parallel') {
+      value = { _parallel: true }
+    } else if (operator === 'td>') {
       const documentDirectory = selectedDocument.path.split('/').slice(0, -1).join('/')
       let fileSequence = sequence
       let relativeSql = `queries/${name}.sql`
@@ -851,13 +900,29 @@ function App() {
       const parsedCurrent = analyzeWorkflow(nextArchive).documents.find((document) => document.path === selectedDocument.path) ?? selectedDocument
       const currentSibling = parsedCurrent.tasks.find((task) => task.id === sibling.id) ?? parsedCurrent.tasks.at(-1)
       if (!currentSibling) throw new Error('追加位置を特定できません')
-      const result = addSiblingTask(parsedCurrent, currentSibling.id, name, value)
+      const result = insertInside
+        ? addChildTask(parsedCurrent, currentSibling.id, name, value)
+        : addSiblingTask(parsedCurrent, currentSibling.id, name, value)
       const updated = replaceArchiveFile(nextArchive, selectedDocument.path, result.after.text)
-      commitArchive(updated, `${operator} タスクを追加しました`)
-      const added = result.document.tasks.find((task) => task.name === `+${name}` && task.parentId === currentSibling.parentId)
+      commitArchive(updated, insertInside ? `${currentSibling.name} の子として ${operator} を追加しました` : `${operator} タスクを直後に追加しました`)
+      const added = result.document.tasks.find((task) => task.name === `+${name}` && task.parentId === (insertInside ? currentSibling.id : currentSibling.parentId))
       setSelectedTaskId(added?.id)
     } catch (error) {
       setToast({ type: 'error', message: error instanceof Error ? error.message : 'タスクを追加できませんでした' })
+    }
+  }
+
+  const updateParallelSettings = (settings: DigdagParallelSettings) => {
+    if (!archive || !analysis || !effectiveSelectedTaskId) return
+    const selected = analysis.tasks.find((item) => item.task.id === effectiveSelectedTaskId)?.task
+    const document = selected ? analysis.documents.find((item) => item.path === selected.documentPath) : undefined
+    if (!selected || !document) return
+    try {
+      const result = setTaskParallel(document, selected.id, settings)
+      applyDocumentText(document.path, result.after.text, settings.enabled ? `${selected.name} を並列実行に設定しました` : `${selected.name} を順次実行に戻しました`)
+      setSelectedTaskId(selected.id)
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : '並列設定を更新できませんでした' })
     }
   }
 
@@ -996,7 +1061,7 @@ function App() {
           {!sidebarCollapsed && <><span /><p><strong>Workflow</strong><small>Visual Editor</small></p></>}
         </div>
         <SidebarNav view={view} onView={setView} diagnostics={diagnostics.length} collapsed={sidebarCollapsed} />
-        {!sidebarCollapsed && (view === 'pipeline' || view === 'combined') && <OperatorPalette onAddOperator={addOperator} />}
+        {!sidebarCollapsed && (view === 'pipeline' || view === 'combined') && <OperatorPalette onAddOperator={addOperator} selectedTask={selectedTaskAnalysis?.task} />}
         {!sidebarCollapsed && (view === 'pipeline' || view === 'combined') && (
           <TaskTree key={selectedDocument?.path} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelect={setSelectedTaskId} onReorder={reorderTask} onDeleteDrop={deleteTaskById} />
         )}
@@ -1062,7 +1127,7 @@ function App() {
               </div>
               <div className={`graph-and-inspector ${(view === 'combined' || view === 'lineage') && !lineageSummaryOpen ? 'graph-full-width' : ''}`}>
                 <WorkflowGraph mode={view === 'pipeline' ? 'pipeline' : view === 'combined' ? 'combined' : 'lineage'} analysis={analysis} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelectTask={setSelectedTaskId} onDropOperator={addOperator} canvasRef={graphRef} searchQuery={graphQuery} />
-                {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} />}
+                {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} onParallelChange={updateParallelSettings} />}
                 {(view === 'combined' || view === 'lineage') && lineageSummaryOpen && (
                   <aside className="lineage-summary-panel">
                     <div className="lineage-summary-header"><Database size={18} /><div><p>Lineage summary</p><h2>{analysis.tableLineage.length} connections</h2></div></div>

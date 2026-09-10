@@ -3134,6 +3134,227 @@ button:disabled {
   border-color: #e0e6ee;
 }
 
+.operator-insert-target {
+  display: grid;
+  min-width: 0;
+  min-height: 31px;
+  padding: 6px 8px;
+  margin-top: 8px;
+  grid-template-columns: 14px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  color: #58708c;
+  background: #edf5ff;
+  border: 1px solid #c9def4;
+  border-radius: 6px;
+}
+
+.operator-insert-target > svg {
+  color: #2568ad;
+}
+
+.operator-insert-target span {
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.operator-insert-target strong {
+  overflow: hidden;
+  color: #215993;
+  font-size: 9px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-tree-row.active {
+  position: relative;
+  color: #174f8d;
+  background: #dfeeff;
+  border-color: #8eb8e2;
+  box-shadow: inset 3px 0 #256bb2;
+}
+
+.task-tree-row.active .task-operator-dot {
+  background: #1768b5;
+  box-shadow: 0 0 0 4px rgba(23, 104, 181, 0.15);
+}
+
+.task-tree-target {
+  display: inline-flex;
+  height: 17px;
+  padding: 0 5px;
+  align-items: center;
+  color: #fff;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: #256bb2;
+  border-radius: 999px;
+}
+
+.react-flow__node.workflow-node.is-selected {
+  z-index: 8 !important;
+  border: 2px solid #2373c4;
+  outline: 4px solid rgba(35, 115, 196, 0.16);
+  box-shadow: 0 10px 26px rgba(30, 93, 157, 0.25);
+}
+
+.react-flow__node.workflow-node.is-selected::before {
+  position: absolute;
+  right: -2px;
+  bottom: calc(100% + 7px);
+  padding: 4px 7px;
+  color: #fff;
+  font-family: Inter, sans-serif;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  content: "ADD TARGET";
+  background: #2373c4;
+  border-radius: 4px;
+  box-shadow: 0 3px 8px rgba(30, 93, 157, 0.2);
+}
+
+.react-flow__node.workflow-node.is-selected .graph-task-header {
+  background: #edf6ff;
+}
+
+.parallel-settings-section {
+  display: grid;
+  gap: 10px;
+}
+
+.parallel-mode-badge {
+  padding: 3px 7px;
+  color: #66758a;
+  font-size: 8px;
+  font-weight: 700;
+  background: #eef1f5;
+  border-radius: 999px;
+}
+
+.parallel-mode-badge.parallel {
+  color: #17643c;
+  background: #dff5e9;
+}
+
+.parallel-toggle {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.parallel-toggle.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.parallel-toggle > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.parallel-toggle-track {
+  position: relative;
+  width: 30px;
+  height: 17px;
+  background: #c9d1db;
+  border-radius: 999px;
+  transition: background 150ms ease;
+}
+
+.parallel-toggle-track i {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 11px;
+  height: 11px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(31, 41, 55, 0.25);
+  transition: transform 150ms ease;
+}
+
+.parallel-toggle > input:checked + .parallel-toggle-track {
+  background: #2f73b8;
+}
+
+.parallel-toggle > input:checked + .parallel-toggle-track i {
+  transform: translateX(13px);
+}
+
+.parallel-toggle > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.parallel-toggle strong {
+  color: #3d4c5e;
+  font-size: 9px;
+}
+
+.parallel-toggle small,
+.parallel-help {
+  color: #8491a2;
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.parallel-options {
+  display: grid;
+  padding: 9px;
+  gap: 9px;
+  background: #f7f9fc;
+  border: 1px solid #e0e6ee;
+  border-radius: 6px;
+}
+
+.parallel-options > label:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #59697c;
+  font-size: 9px;
+}
+
+.parallel-options input[type="number"] {
+  width: 94px;
+  min-height: 27px;
+  padding: 4px 7px;
+  color: #334155;
+  font-size: 9px;
+  background: #fff;
+  border: 1px solid #d6dee8;
+  border-radius: 5px;
+}
+
+.parallel-eager-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #53657a;
+}
+
+.parallel-eager-option > span {
+  display: grid;
+  gap: 1px;
+}
+
+.parallel-eager-option strong {
+  font-size: 9px;
+}
+
+.parallel-eager-option small {
+  color: #8794a4;
+  font-size: 8px;
+}
+
 /* Responsive */
 @media (max-width: 1400px) {
   .header-actions > .secondary-button {

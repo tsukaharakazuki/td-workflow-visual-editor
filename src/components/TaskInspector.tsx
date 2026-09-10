@@ -9,14 +9,15 @@ import {
   Info,
   Trash2,
 } from 'lucide-react'
-import { findSchemaTable } from '../core'
-import type { SchemaTable, WorkflowSchema, WorkflowTaskAnalysis } from '../types'
+import { findSchemaTable, parallelSettingsForTask } from '../core'
+import type { DigdagParallelSettings, SchemaTable, WorkflowSchema, WorkflowTaskAnalysis } from '../types'
 
 interface TaskInspectorProps {
   analysis?: WorkflowTaskAnalysis
   schemas: WorkflowSchema[]
   onDelete: () => void
   onOpenFile: (path: string) => void
+  onParallelChange: (settings: DigdagParallelSettings) => void
 }
 
 type InspectorTab = 'overview' | 'sql' | 'schema'
@@ -66,7 +67,7 @@ function TableSchemaCard({
   )
 }
 
-export function TaskInspector({ analysis, schemas, onDelete, onOpenFile }: TaskInspectorProps) {
+export function TaskInspector({ analysis, schemas, onDelete, onOpenFile, onParallelChange }: TaskInspectorProps) {
   const [tab, setTab] = useState<InspectorTab>('overview')
   const inputs = analysis?.sql?.sources ?? []
   const outputs = analysis?.sql?.targets ?? []
@@ -90,6 +91,8 @@ export function TaskInspector({ analysis, schemas, onDelete, onOpenFile }: TaskI
   }
 
   const task = analysis.task
+  const parallel = parallelSettingsForTask(task)
+  const canConfigureParallel = !task.operator || task.children.length > 0 || parallel.enabled
   return (
     <aside className="inspector-panel">
       <div className="inspector-header">
@@ -129,6 +132,45 @@ export function TaskInspector({ analysis, schemas, onDelete, onOpenFile }: TaskI
                 <span><Database size={13} /> {inputs.length} inputs</span>
                 <span><Database size={13} /> {outputs.length} outputs</span>
               </div>
+            </section>
+            <section className="property-section parallel-settings-section">
+              <div className="section-heading-row">
+                <h3>子タスクの実行モード</h3>
+                <span className={`parallel-mode-badge ${parallel.enabled ? 'parallel' : ''}`}>{parallel.enabled ? 'Parallel' : 'Sequential'}</span>
+              </div>
+              <label className={`parallel-toggle ${!canConfigureParallel ? 'disabled' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={parallel.enabled}
+                  disabled={!canConfigureParallel}
+                  onChange={(event) => onParallelChange({ enabled: event.target.checked })}
+                />
+                <span className="parallel-toggle-track"><i /></span>
+                <span><strong>子タスクを並列実行</strong><small>選択中のグループ直下にあるタスクへ `_parallel` を適用します。</small></span>
+              </label>
+              {!canConfigureParallel && <p className="parallel-help">子タスクを持つグループで設定できます。Add Taskの「Parallel Group」から新規作成もできます。</p>}
+              {parallel.enabled && (
+                <div className="parallel-options">
+                  <label>
+                    <span>同時実行数</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="制限なし"
+                      value={parallel.limit ?? ''}
+                      onChange={(event) => {
+                        const limit = event.target.value === '' ? undefined : Number(event.target.value)
+                        if (limit === undefined || (Number.isInteger(limit) && limit > 0)) onParallelChange({ ...parallel, limit })
+                      }}
+                    />
+                  </label>
+                  <label className="parallel-eager-option">
+                    <input type="checkbox" checked={parallel.eager ?? false} onChange={(event) => onParallelChange({ ...parallel, eager: event.target.checked })} />
+                    <span><strong>eager</strong><small>空きができ次第、次のタスクを開始</small></span>
+                  </label>
+                </div>
+              )}
             </section>
             {analysis.sourceFilePath && (
               <section className="property-section">

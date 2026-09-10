@@ -23,6 +23,7 @@ export {
   schemaColumnsForReference,
 } from './schema'
 export { analyzeWorkflow, buildWorkflowLineage } from './lineage'
+export { addChildTask, parallelSettingsForTask, setTaskParallel } from './parallel'
 export {
   addSibling,
   addSiblingTask,

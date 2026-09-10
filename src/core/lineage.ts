@@ -88,8 +88,7 @@ function exportVariables(document: DigdagDocument): Record<string, string> {
 
 function resolveTemplate(value: string | undefined, variables: Record<string, string>): string | undefined {
   if (!value) return value
-  const match = value.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/)
-  return match?.[1] && variables[match[1]] !== undefined ? variables[match[1]] : value
+  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (expression, name: string) => variables[name] ?? expression)
 }
 
 function configuredTarget(task: DigdagTaskNode, variables: Record<string, string>): {
@@ -238,7 +237,8 @@ function sequenceEdges(documents: readonly DigdagDocument[]): PipelineEdge[] {
   for (const group of taskGroups(documents)) {
     const parent = group[0]?.parentId ? tasksById.get(group[0].parentId as string) : undefined
     const parentValue = parent ? plainRecord(parent.value) : undefined
-    if (parentValue?._parallel === true) continue
+    const parallel = parentValue?._parallel
+    if (parallel === true || plainRecord(parallel)) continue
     for (let index = 1; index < group.length; index += 1) {
       edges.push({ from: group[index - 1].id, to: group[index].id, kind: 'sequence', confidence: 'exact' })
     }
@@ -309,10 +309,13 @@ function sourceColumnCandidates(
   }
   const pattern = /(?:(\w+)\s*\.\s*)?([A-Za-z_][A-Za-z0-9_$-]*)/g
   const ignored = new Set(['as', 'case', 'when', 'then', 'else', 'end', 'null', 'true', 'false', 'distinct', 'over', 'partition', 'by', 'order', 'asc', 'desc', 'and', 'or', 'not', 'is', 'like', 'in', 'cast', 'date', 'interval', 'current_date'])
-  for (const match of maskExpression(expression).matchAll(pattern)) {
+  const maskedExpression = maskExpression(expression)
+  for (const match of maskedExpression.matchAll(pattern)) {
     const qualifier = match[1]?.toLowerCase()
     const column = match[2]
-    if (!column || ignored.has(column.toLowerCase())) continue
+    const matchEnd = (match.index ?? 0) + match[0].length
+    const nextNonSpace = maskedExpression.slice(matchEnd).match(/^\s*(.)/)?.[1]
+    if (!column || ignored.has(column.toLowerCase()) || nextNonSpace === '(') continue
     if (qualifier) {
       const source = aliases.get(qualifier)
       if (source) candidates.push({ source, column, confidence: source.confidence })

@@ -206,6 +206,12 @@ export interface WorkflowAnalysisOptions {
   includeBinaryFiles?: boolean
 }
 
+export interface DigdagParallelSettings {
+  enabled: boolean
+  limit?: number
+  eager?: boolean
+}
+
 export interface TaskEditSnapshot {
   path: string
   text: string
