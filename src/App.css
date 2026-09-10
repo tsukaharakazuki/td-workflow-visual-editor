@@ -1776,7 +1776,7 @@ button:disabled {
 
 .inspector-header {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 34px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
   min-height: 72px;
   padding: 12px 14px;
   align-items: center;
@@ -3590,4 +3590,112 @@ button:disabled {
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Task Inspector edit mode. */
+.inspector-header .icon-button.is-editing {
+  color: #2f6db2;
+  background: #e8f1fb;
+}
+
+.inspector-name-input {
+  width: 100%;
+  padding: 3px 8px;
+  color: #23405f;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid #cbd7e4;
+  border-radius: 6px;
+}
+
+.inspector-name-input:focus,
+.inspector-field-input:focus,
+.sql-editor:focus {
+  border-color: #4f8fc4;
+  outline: 2px solid rgba(79, 143, 196, 0.16);
+}
+
+.inspector-edit-banner {
+  display: flex;
+  margin: 0 16px 10px;
+  padding: 7px 10px;
+  align-items: center;
+  gap: 6px;
+  color: #2f6db2;
+  font-size: 11px;
+  line-height: 1.5;
+  background: #eef5fc;
+  border-radius: 7px;
+}
+
+.inspector-edit-banner svg {
+  flex: none;
+}
+
+.inspector-field-input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 8px;
+  color: #33465c;
+  font-family: inherit;
+  font-size: 11px;
+  text-align: right;
+  background: #fff;
+  border: 1px solid #cbd7e4;
+  border-radius: 6px;
+}
+
+.sql-editor {
+  width: 100%;
+  min-height: 260px;
+  padding: 11px 13px;
+  color: #1f2d3d;
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.65;
+  resize: vertical;
+  background: #fff;
+  border: 1px solid #cbd7e4;
+  border-radius: 8px;
+}
+
+.sql-editor-actions {
+  display: flex;
+  margin-top: 9px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sql-editor-actions small {
+  min-width: 0;
+  overflow: hidden;
+  color: #7b8ca0;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sql-editor-actions .primary-button {
+  flex: none;
+  white-space: nowrap;
+}
+
+.sql-editor-actions .primary-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.inspector-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.inspector-header dd,
+.property-list dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

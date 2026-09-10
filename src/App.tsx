@@ -63,6 +63,9 @@ import { toPng, toSvg } from 'html-to-image'
 import { jsPDF } from 'jspdf'
 import {
   addChildTask,
+  renameDigdagTask,
+  setDigdagTaskFields,
+  setDigdagTaskQuery,
   addSiblingTask,
   analyzeWorkflow,
   deleteDigdagTask,
@@ -1246,6 +1249,56 @@ function App() {
     }
   }
 
+  const selectedTaskDocument = () => {
+    if (!archive || !analysis || !effectiveSelectedTaskId) return undefined
+    const task = analysis.tasks.find((item) => item.task.id === effectiveSelectedTaskId)?.task
+    const document = task ? analysis.documents.find((item) => item.path === task.documentPath) : undefined
+    return task && document ? { task, document } : undefined
+  }
+
+  const renameTask = (name: string) => {
+    const target = selectedTaskDocument()
+    if (!target) return
+    try {
+      const result = renameDigdagTask(target.document, target.task.id, name)
+      applyDocumentText(target.document.path, result.after.text, `タスク名を ${name.replace(/^\+/, '')} に変更しました`)
+      const renamed = result.document.tasks.find((task) => task.name === (name.startsWith('+') ? name : `+${name}`))
+      setSelectedTaskId(renamed?.id)
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : 'タスク名を変更できませんでした' })
+    }
+  }
+
+  const updateTaskFields = (fields: { database?: string; engine?: string }) => {
+    const target = selectedTaskDocument()
+    if (!target) return
+    try {
+      const result = setDigdagTaskFields(target.document, target.task.id, fields)
+      const label = Object.keys(fields).join(' / ')
+      applyDocumentText(target.document.path, result.after.text, `${target.task.name} の ${label} を更新しました`)
+      setSelectedTaskId(target.task.id)
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : '設定を更新できませんでした' })
+    }
+  }
+
+  const updateTaskSql = (sql: string) => {
+    const target = selectedTaskDocument()
+    if (!target || !archive) return
+    const sourceFilePath = analysis?.tasks.find((item) => item.task.id === target.task.id)?.sourceFilePath
+    try {
+      if (sourceFilePath) {
+        commitArchive(replaceArchiveFile(archive, sourceFilePath, sql), `${sourceFilePath} を保存し、再解析しました`)
+      } else {
+        const result = setDigdagTaskQuery(target.document, target.task.id, sql)
+        applyDocumentText(target.document.path, result.after.text, `${target.task.name} のSQLを保存しました`)
+      }
+      setSelectedTaskId(target.task.id)
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : 'SQLを保存できませんでした' })
+    }
+  }
+
   const openFile = (fileOrPath: WorkflowFile | string) => {
     if (!archive) return
     const file = typeof fileOrPath === 'string' ? archive.files.find((item) => item.path === fileOrPath) : fileOrPath
@@ -1519,7 +1572,7 @@ function App() {
               </div>
               <div className={`graph-and-inspector ${(view === 'combined' || view === 'lineage') && !lineageSummaryOpen ? 'graph-full-width' : ''}`}>
                 <WorkflowGraph mode={view === 'pipeline' ? 'pipeline' : view === 'combined' ? 'combined' : 'lineage'} analysis={analysis} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelectTask={setSelectedTaskId} onDropOperator={addOperator} canvasRef={graphRef} searchQuery={graphQuery} />
-                {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} onParallelChange={updateParallelSettings} />}
+                {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} onParallelChange={updateParallelSettings} onRename={renameTask} onFieldsChange={updateTaskFields} onSqlSave={updateTaskSql} />}
                 {(view === 'combined' || view === 'lineage') && lineageSummaryOpen && (
                   <aside className="lineage-summary-panel">
                     <div className="lineage-summary-header"><Database size={18} /><div><p>Lineage summary</p><h2>{analysis.tableLineage.length} connections</h2></div></div>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Braces,
   Code2,
@@ -7,6 +7,8 @@ import {
   FileCode2,
   GitBranch,
   Info,
+  Pencil,
+  Save,
   Trash2,
 } from 'lucide-react'
 import { findSchemaTable, parallelSettingsForTask } from '../core'
@@ -18,6 +20,9 @@ interface TaskInspectorProps {
   onDelete: () => void
   onOpenFile: (path: string) => void
   onParallelChange: (settings: DigdagParallelSettings) => void
+  onRename: (name: string) => void
+  onFieldsChange: (fields: { database?: string; engine?: string }) => void
+  onSqlSave: (sql: string) => void
 }
 
 type InspectorTab = 'overview' | 'sql' | 'schema'
@@ -67,8 +72,36 @@ function TableSchemaCard({
   )
 }
 
-export function TaskInspector({ analysis, schemas, onDelete, onOpenFile, onParallelChange }: TaskInspectorProps) {
+export function TaskInspector({
+  analysis,
+  schemas,
+  onDelete,
+  onOpenFile,
+  onParallelChange,
+  onRename,
+  onFieldsChange,
+  onSqlSave,
+}: TaskInspectorProps) {
   const [tab, setTab] = useState<InspectorTab>('overview')
+  const [editing, setEditing] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const [databaseDraft, setDatabaseDraft] = useState('')
+  const [engineDraft, setEngineDraft] = useState('')
+  const [sqlDraft, setSqlDraft] = useState('')
+
+  const taskId = analysis?.task.id
+  const taskName = analysis?.task.name
+  const taskDatabase = analysis?.task.database
+  const taskEngine = analysis?.task.engine
+  const taskSql = analysis?.sql?.sql
+  // Drafts follow the selected task, and pick up whatever a save reparsed.
+  useEffect(() => {
+    setNameDraft(taskName?.replace(/^\+/, '') ?? '')
+    setDatabaseDraft(taskDatabase ?? '')
+    setEngineDraft(taskEngine ?? '')
+    setSqlDraft(taskSql ?? '')
+  }, [taskId, taskName, taskDatabase, taskEngine, taskSql])
+
   const inputs = analysis?.sql?.sources ?? []
   const outputs = analysis?.sql?.targets ?? []
   const columnMappings = useMemo(() => {
@@ -99,12 +132,35 @@ export function TaskInspector({ analysis, schemas, onDelete, onOpenFile, onParal
         <div className="inspector-task-icon"><Braces size={18} /></div>
         <div>
           <p>Task Inspector</p>
-          <h2>{task.name.replace(/^\+/, '')}</h2>
+          {editing ? (
+            <input
+              className="inspector-name-input"
+              value={nameDraft}
+              aria-label="タスク名"
+              spellCheck={false}
+              onChange={(event) => setNameDraft(event.target.value)}
+              onBlur={() => { if (nameDraft.trim() && `+${nameDraft.trim()}` !== task.name) onRename(nameDraft) }}
+              onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
+            />
+          ) : <h2>{task.name.replace(/^\+/, '')}</h2>}
         </div>
-        <button className="icon-button danger" type="button" title="タスクを削除" onClick={onDelete}>
-          <Trash2 size={17} />
-        </button>
+        <div className="inspector-header-actions">
+          <button
+            className={`icon-button ${editing ? 'is-editing' : ''}`}
+            type="button"
+            role="switch"
+            aria-checked={editing}
+            title={editing ? '編集モードを終了' : '編集モードにする'}
+            onClick={() => setEditing((current) => !current)}
+          >
+            <Pencil size={16} />
+          </button>
+          <button className="icon-button danger" type="button" title="タスクを削除" onClick={onDelete}>
+            <Trash2 size={17} />
+          </button>
+        </div>
       </div>
+      {editing && <p className="inspector-edit-banner"><Pencil size={12} /> 編集モード — 名前・Database・Engineは入力後にフォーカスを外すと保存されます</p>}
 
       <div className="inspector-tabs" role="tablist" aria-label="Task details">
         <button type="button" className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>概要</button>
@@ -120,8 +176,29 @@ export function TaskInspector({ analysis, schemas, onDelete, onOpenFile, onParal
               <dl className="property-list">
                 <div><dt>Operator</dt><dd><code>{task.operator ?? 'group'}</code></dd></div>
                 <div><dt>Workflow</dt><dd>{task.documentPath}</dd></div>
-                <div><dt>Database</dt><dd>{task.database ?? '未指定'}</dd></div>
-                <div><dt>Engine</dt><dd>{task.engine ?? '継承 / 未指定'}</dd></div>
+                <div><dt>Database</dt><dd>{editing ? (
+                  <input
+                    className="inspector-field-input"
+                    value={databaseDraft}
+                    placeholder="未指定"
+                    spellCheck={false}
+                    onChange={(event) => setDatabaseDraft(event.target.value)}
+                    onBlur={() => { if (databaseDraft.trim() !== (task.database ?? '')) onFieldsChange({ database: databaseDraft }) }}
+                    onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
+                  />
+                ) : task.database ?? '未指定'}</dd></div>
+                <div><dt>Engine</dt><dd>{editing ? (
+                  <input
+                    className="inspector-field-input"
+                    value={engineDraft}
+                    placeholder="presto / hive"
+                    list="inspector-engine-options"
+                    spellCheck={false}
+                    onChange={(event) => setEngineDraft(event.target.value)}
+                    onBlur={() => { if (engineDraft.trim() !== (task.engine ?? '')) onFieldsChange({ engine: engineDraft }) }}
+                    onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
+                  />
+                ) : task.engine ?? '継承 / 未指定'}</dd></div>
                 <div><dt>Depth</dt><dd>{task.depth}</dd></div>
               </dl>
             </section>
@@ -199,7 +276,28 @@ export function TaskInspector({ analysis, schemas, onDelete, onOpenFile, onParal
             </div>
             {analysis.sql ? (
               <>
-                <pre className="sql-code-block">{analysis.sql.sql}</pre>
+                {editing ? (
+                  <>
+                    <textarea
+                      className="sql-editor"
+                      value={sqlDraft}
+                      spellCheck={false}
+                      aria-label="SQL"
+                      onChange={(event) => setSqlDraft(event.target.value)}
+                    />
+                    <div className="sql-editor-actions">
+                      <small>{analysis.sourceFilePath ? `保存先: ${analysis.sourceFilePath}` : 'ワークフロー内のインラインクエリ'}</small>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={sqlDraft === analysis.sql.sql}
+                        onClick={() => onSqlSave(sqlDraft)}
+                      >
+                        <Save size={15} /> SQLを保存
+                      </button>
+                    </div>
+                  </>
+                ) : <pre className="sql-code-block">{analysis.sql.sql}</pre>}
                 <div className="sql-summary">
                   <span>{analysis.sql.cteNames.length} CTE</span>
                   <span>{analysis.sql.outputColumns.length} projected columns</span>
@@ -245,6 +343,10 @@ export function TaskInspector({ analysis, schemas, onDelete, onOpenFile, onParal
           </>
         )}
       </div>
+      <datalist id="inspector-engine-options">
+        <option value="presto" />
+        <option value="hive" />
+      </datalist>
     </aside>
   )
 }
