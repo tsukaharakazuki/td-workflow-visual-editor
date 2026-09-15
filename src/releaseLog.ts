@@ -13,6 +13,16 @@ export interface ReleaseLogEntry {
  */
 export const RELEASE_LOG: readonly ReleaseLogEntry[] = [
   {
+    at: '2026-09-15 23:27:12',
+    summary: 'Add Task に「Group」を追加し、オペレーターのアイコンを整理',
+    details: [
+      '名前だけのまとめ役タスク（`+main:` の下に子タスクを並べる形）を追加できるように',
+      '追加したGroupを選択したまま次のタスクを追加すると、その中に入ります',
+      'Group はフォルダツリー、並列グループは分岐、Echo は吹き出し、Require はリンクのアイコンに変更',
+      'グラフのカードのアイコンもAdd Taskと同じ絵柄に統一',
+    ],
+  },
+  {
     at: '2026-09-15 23:19:24',
     summary: '矢印の向きを左→右に統一',
     details: [

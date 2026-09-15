@@ -13,7 +13,7 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react'
-import { ArrowDownToLine, Braces, ChevronDown, Database, EllipsisVertical, GitBranch, GitFork, Layers3, Network, Repeat2, Search, Table2 } from 'lucide-react'
+import { ArrowDownToLine, Braces, ChevronDown, Database, EllipsisVertical, FolderTree, GitBranch, GitFork, Layers3, Link2, MessageSquare, Network, Repeat2, Search, Table2 } from 'lucide-react'
 import { inferredTableFor, parallelSettingsForTask } from '../core'
 import { passesGraphFilters, UNSPECIFIED } from './GraphFilterBar'
 import type { GraphFilterGroup, GraphFilterSelection } from './GraphFilterBar'
@@ -130,10 +130,15 @@ function operatorTone(operator?: string): string {
 }
 
 function OperatorIcon({ operator }: { operator?: string }) {
-  if (operator === 'td>' || operator === 'td_ddl>' || operator === 'td_run>') return <Database size={16} />
+  // A task with no operator is a plain group: the icon says so, matching Add Task.
+  if (!operator) return <FolderTree size={16} />
+  if (operator === '_parallel') return <GitFork size={16} />
+  if (operator.startsWith('td_') || operator === 'td>') return <Database size={16} />
   if (operator === 'if>') return <GitBranch size={16} />
-  if (operator === 'for_each>' || operator === 'loop>') return <Repeat2 size={16} />
-  if (operator === 'call>' || operator === 'require>') return <Layers3 size={16} />
+  if (operator === 'for_each>' || operator === 'loop>' || operator === 'for_range>') return <Repeat2 size={16} />
+  if (operator === 'require>') return <Link2 size={16} />
+  if (operator === 'call>' || operator === 'http_call>') return <Layers3 size={16} />
+  if (operator === 'echo>') return <MessageSquare size={16} />
   return <Braces size={16} />
 }
 

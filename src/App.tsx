@@ -13,7 +13,6 @@ import {
   ArrowDownToLine,
   BookOpen,
   Box,
-  Braces,
   Check,
   ChevronDown,
   ChevronRight,
@@ -31,6 +30,7 @@ import {
   FileJson2,
   FileText,
   FolderOpen,
+  FolderTree,
   Globe2,
   GitBranch,
   GitFork,
@@ -39,7 +39,9 @@ import {
   ImageDown,
   Info,
   Layers3,
+  Link2,
   ListTree,
+  MessageSquare,
   LoaderCircle,
   LockKeyhole,
   Mail,
@@ -103,14 +105,15 @@ interface ToastState {
 const OPERATOR_PALETTE = [
   // Frequently used operators stay visible in the compact palette.
   { operator: 'td>', label: 'TD Query', description: 'SQLを実行', category: 'Treasure Data', icon: Database, tone: 'query' },
+  { operator: '_group', label: 'Group', description: '名前だけのまとめ役。中に子タスクを並べる', category: '制御', icon: FolderTree, tone: 'neutral' },
   { operator: 'if>', label: 'Condition', description: '条件分岐', category: '制御', icon: GitBranch, tone: 'control' },
   { operator: 'for_each>', label: 'For Each', description: '値ごとに繰り返し', category: '制御', icon: Repeat2, tone: 'control' },
   { operator: '_parallel', label: 'Parallel Group', description: '子タスクを並列実行', category: '制御', icon: GitFork, tone: 'control' },
   { operator: 'call>', label: 'Call', description: '別Workflowを呼び出す', category: '制御', icon: Layers3, tone: 'reference' },
-  { operator: 'echo>', label: 'Echo', description: 'メッセージを表示', category: '制御', icon: Braces, tone: 'neutral' },
+  { operator: 'echo>', label: 'Echo', description: 'メッセージを表示', category: '制御', icon: MessageSquare, tone: 'neutral' },
   { operator: 'py>', label: 'Python', description: 'Pythonを実行', category: 'スクリプト', icon: Code2, tone: 'script' },
   { operator: 'http_call>', label: 'HTTP Call', description: 'HTTP経由でWorkflowを呼び出す', category: '制御', icon: Globe2, tone: 'reference' },
-  { operator: 'require>', label: 'Require', description: '別Workflowの完了を待つ', category: '制御', icon: Layers3, tone: 'reference' },
+  { operator: 'require>', label: 'Require', description: '別Workflowの完了を待つ', category: '制御', icon: Link2, tone: 'reference' },
   { operator: 'loop>', label: 'Loop', description: 'タスクを繰り返す', category: '制御', icon: Repeat2, tone: 'control' },
   { operator: 'for_range>', label: 'For Range', description: '指定範囲で繰り返す', category: '制御', icon: Repeat2, tone: 'control' },
   { operator: 'fail>', label: 'Fail', description: 'Workflowを失敗させる', category: '制御', icon: CircleX, tone: 'control' },
@@ -148,7 +151,7 @@ const OPERATOR_PALETTE = [
   { operator: 'param_set>', label: 'Param Set', description: '永続パラメータを保存', category: 'Digdag / その他', icon: Settings2, tone: 'neutral' },
 ] as const
 
-const INITIAL_OPERATOR_COUNT = 7
+const INITIAL_OPERATOR_COUNT = 8
 const OPERATOR_CATEGORIES = [...new Set(OPERATOR_PALETTE.map((item) => item.category))] as const
 
 type OperatorPaletteItem = (typeof OPERATOR_PALETTE)[number]
@@ -1192,7 +1195,7 @@ function App() {
     const insertInside = sibling.operators.includes('_parallel') || !sibling.operator
     const insertionParentId = insertInside ? sibling.id : sibling.parentId
     const stemMap: Record<string, string> = {
-      'td>': 'query', 'if>': 'condition', 'for_each>': 'for_each', '_parallel': 'parallel_group', 'call>': 'call_workflow', 'echo>': 'echo', 'py>': 'python_task',
+      'td>': 'query', 'if>': 'condition', 'for_each>': 'for_each', '_parallel': 'parallel_group', '_group': 'group', 'call>': 'call_workflow', 'echo>': 'echo', 'py>': 'python_task',
     }
     const stem = stemMap[operator] ?? (operator.replace(/>$/, '').replace(/[^A-Za-z0-9]+/g, '_') || 'task')
     const siblings = selectedDocument.tasks.filter((task) => task.parentId === insertionParentId)
@@ -1202,7 +1205,10 @@ function App() {
 
     let value: Record<string, unknown>
     let nextArchive = archive
-    if (operator === '_parallel') {
+    if (operator === '_group') {
+      // A name with nothing under it yet: children are added into it next.
+      value = {}
+    } else if (operator === '_parallel') {
       value = { _parallel: true }
     } else if (operator === 'td>') {
       const documentDirectory = selectedDocument.path.split('/').slice(0, -1).join('/')
@@ -1234,7 +1240,8 @@ function App() {
         ? addChildTask(parsedCurrent, currentSibling.id, name, value)
         : addSiblingTask(parsedCurrent, currentSibling.id, name, value)
       const updated = replaceArchiveFile(nextArchive, selectedDocument.path, result.after.text)
-      commitArchive(updated, insertInside ? `${currentSibling.name} の子として ${operator} を追加しました` : `${operator} タスクを直後に追加しました`)
+      const label = OPERATOR_PALETTE.find((item) => item.operator === operator)?.label ?? operator
+      commitArchive(updated, insertInside ? `${currentSibling.name} の子として ${label} を追加しました` : `${label} を直後に追加しました`)
       const added = result.document.tasks.find((task) => task.name === `+${name}` && task.parentId === (insertInside ? currentSibling.id : currentSibling.parentId))
       setSelectedTaskId(added?.id)
     } catch (error) {
