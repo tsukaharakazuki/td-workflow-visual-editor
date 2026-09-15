@@ -45,16 +45,14 @@ const NODE_HEIGHT = 112
 const TABLE_WIDTH = 310
 const TABLE_HEIGHT = 274
 /**
- * Horizontal step per nesting level. Wide enough that a parent's centre line —
- * where the execution-order arrow runs — clears the cards of its own children.
+ * Horizontal step per nesting level. Wider than a card, so a child starts to the
+ * right of where its parent ends and the arrow between them runs forwards.
  */
-const INDENT_WIDTH = 168
+const INDENT_WIDTH = 320
 /** Vertical gap between rows of the outline. */
 const ROW_GAP = 34
-/** How far left of a card the containment line runs. */
-const CONTAINS_GUTTER = 20
-/** Room at the left of the outline for the containment line. */
-const GUTTER_WIDTH = 36
+/** How far past a card an elbow turns before heading for the next one. */
+const EDGE_ELBOW = 16
 /** Gap between a task card and the table cards attached to its sides. */
 const TABLE_GAP = 64
 /** Vertical gap between table cards stacked on the same side of a task. */
@@ -403,7 +401,7 @@ function outlineLayout({ tasks, rootIds, inputTables, outputTables }: OutlineInp
     const outputs = outputTables.get(id) ?? []
     const rowHeight = Math.max(NODE_HEIGHT, stackHeight(inputs.length), stackHeight(outputs.length))
     const center = top + rowHeight / 2
-    const taskX = CANVAS_MARGIN + GUTTER_WIDTH + leftMargin + depth * INDENT_WIDTH
+    const taskX = CANVAS_MARGIN + leftMargin + depth * INDENT_WIDTH
 
     rects.set(id, { x: taskX, y: center - NODE_HEIGHT / 2, width: NODE_WIDTH, height: NODE_HEIGHT })
 
@@ -441,17 +439,20 @@ function nodeRects(nodes: Node[]): Map<string, GraphRect> {
 }
 
 /**
- * Picks which of the four sides an edge leaves and enters. Containment edges
- * always drop out of the bottom of the parent so the hierarchy reads downwards.
- */
-/**
- * Every arrow enters its target from the left, so every arrowhead points the
- * same way. Mixing left-to-right and right-to-left arrows in one picture makes
- * the direction of flow something you have to work out per edge.
+ * Picks which of the four sides an edge leaves and enters.
+ *
+ * Two cases, and only two. Cards at the same indent are one above the other, so
+ * the arrow drops straight down between them. Cards at different indents read
+ * left to right, so the arrow leaves the right of one and enters the left of the
+ * next. Nothing ever points backwards.
  */
 function anchorSides(source: GraphRect, target: GraphRect): { source: Position; target: Position } {
-  const dx = (target.x + target.width / 2) - (source.x + source.width / 2)
-  return { source: dx >= 0 ? Position.Right : Position.Left, target: Position.Left }
+  if (Math.abs(target.x - source.x) < 1) {
+    return target.y >= source.y
+      ? { source: Position.Bottom, target: Position.Top }
+      : { source: Position.Top, target: Position.Bottom }
+  }
+  return { source: Position.Right, target: Position.Left }
 }
 
 function assignEdgeAnchors(nodes: Node[], edges: Edge[]): Edge[] {
@@ -495,21 +496,15 @@ function taskElements(
     const key = `${source}:${target}:${kind}`
     if (edgeKeys.has(key)) return
     edgeKeys.add(key)
-    // Execution order drops straight down the middle from one task to the next;
-    // containment hangs off the left, where it cannot be mistaken for order.
-    const anchors = kind === 'sequence'
+    // A child always sits at a deeper indent, so containment always reads left
+    // to right. Execution order takes whichever case the geometry puts it in.
+    const anchors = kind.startsWith('contains')
       ? {
-        sourceHandle: `${Position.Bottom}-source`,
-        targetHandle: `${Position.Top}-target`,
-        pathOptions: { offset: 0, borderRadius: 0 },
+        sourceHandle: `${Position.Right}-source`,
+        targetHandle: `${Position.Left}-target`,
+        pathOptions: { offset: EDGE_ELBOW, borderRadius: 10 },
       }
-      : kind.startsWith('contains')
-        ? {
-          sourceHandle: `${Position.Left}-source`,
-          targetHandle: `${Position.Left}-target`,
-          pathOptions: { offset: CONTAINS_GUTTER, borderRadius: 10 },
-        }
-        : undefined
+      : undefined
     const outlined = kind === 'sequence' || kind.startsWith('contains')
     edges.push({
       id: key,
