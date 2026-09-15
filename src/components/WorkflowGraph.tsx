@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode, type RefObject } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode, type RefObject } from 'react'
 import dagre from '@dagrejs/dagre'
 import {
   Background,
@@ -8,12 +8,13 @@ import {
   MiniMap,
   Position,
   ReactFlow,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeProps,
 } from '@xyflow/react'
-import { Braces, ChevronDown, Database, EllipsisVertical, GitBranch, Layers3, Network, Repeat2, Search, Table2 } from 'lucide-react'
-import { inferredTableFor } from '../core'
+import { ArrowDownToLine, Braces, ChevronDown, Database, EllipsisVertical, GitBranch, GitFork, Layers3, Network, Repeat2, Search, Table2 } from 'lucide-react'
+import { inferredTableFor, parallelSettingsForTask } from '../core'
 import { passesGraphFilters, UNSPECIFIED } from './GraphFilterBar'
 import type { GraphFilterGroup, GraphFilterSelection } from './GraphFilterBar'
 import type {
@@ -43,10 +44,10 @@ const NODE_WIDTH = 260
 const NODE_HEIGHT = 112
 const TABLE_WIDTH = 310
 const TABLE_HEIGHT = 274
-/** Horizontal gap between sibling subtrees laid out left to right. */
-const COLUMN_GAP = 88
-/** Vertical gap between depth bands. Child tasks sit one band below the parent. */
-const ROW_GAP = 108
+/** Horizontal step per nesting level in the outline. */
+const INDENT_WIDTH = 58
+/** Vertical gap between rows of the outline. */
+const ROW_GAP = 34
 /** Gap between a task card and the table cards attached to its sides. */
 const TABLE_GAP = 64
 /** Vertical gap between table cards stacked on the same side of a task. */
@@ -73,6 +74,42 @@ function AnchoredNode({ data }: NodeProps) {
 
 const nodeTypes = { anchored: AnchoredNode }
 
+/**
+ * An outline is read top to bottom, so it opens fitted to the width with the
+ * first task in view rather than shrunk until the whole column fits.
+ */
+function FitToWidth({ nodes, signature }: { nodes: readonly Node[]; signature: string }) {
+  const flow = useReactFlow()
+  useEffect(() => {
+    if (nodes.length === 0) return
+    const frame = window.requestAnimationFrame(() => {
+      let left = Infinity
+      let right = -Infinity
+      let top = Infinity
+      for (const node of nodes) {
+        const width = Number(node.style?.width ?? NODE_WIDTH)
+        left = Math.min(left, node.position.x)
+        right = Math.max(right, node.position.x + width)
+        top = Math.min(top, node.position.y)
+      }
+      const graphWidth = right - left
+      if (!Number.isFinite(graphWidth) || graphWidth <= 0) return
+      const viewport = document.querySelector('.graph-canvas')?.getBoundingClientRect()
+      if (!viewport || viewport.width === 0) return
+      // Never magnify past natural size: a narrow outline should not fill the canvas.
+      const zoom = Math.min(1, Math.max(0.12, (viewport.width - CANVAS_MARGIN * 2) / graphWidth))
+      flow.setViewport({
+        x: (viewport.width - graphWidth * zoom) / 2 - left * zoom,
+        y: CANVAS_MARGIN - top * zoom,
+        zoom,
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+    // Refit when the graph itself changes, not on every node identity churn.
+  }, [flow, signature])
+  return null
+}
+
 function operatorLabel(task: DigdagTaskNode): string {
   if (task.operator === '_parallel') return 'Parallel group'
   return task.operator ?? 'Group'
@@ -94,7 +131,7 @@ function OperatorIcon({ operator }: { operator?: string }) {
   return <Braces size={16} />
 }
 
-function taskLabel(task: DigdagTaskNode) {
+function taskLabel(task: DigdagTaskNode, childMode?: 'parallel' | 'sequential') {
   return (
     <div className="graph-task-label">
       <div className="graph-task-header">
@@ -109,6 +146,11 @@ function taskLabel(task: DigdagTaskNode) {
       </div>
       <div className="graph-task-details">
         <code>{operatorLabel(task)}</code>
+        {childMode && (
+          <span className={`graph-task-mode ${childMode}`} title={childMode === 'parallel' ? '子タスクは並列実行' : '子タスクは順次実行'}>
+            {childMode === 'parallel' ? <><GitFork size={10} /> 並列</> : <><ArrowDownToLine size={10} /> 順次</>}
+          </span>
+        )}
         <span title={task.documentPath}>{task.documentPath}</span>
       </div>
     </div>
@@ -300,23 +342,7 @@ function layoutGraph(
   })
 }
 
-interface SubtreeMeasure {
-  /** Width of the whole subtree, including the tables attached to each task. */
-  width: number
-  /** Offset of the task card itself inside the subtree. */
-  taskOffset: number
-  /** Offset of the task's own row (tables + card) inside the subtree. */
-  ownOffset: number
-  /** Offset of the children row inside the subtree. */
-  childrenOffset: number
-  /** Offset of each child subtree inside the children row. */
-  childOffsets: number[]
-  /** Height of the task's own row, tables included. */
-  height: number
-  leftWidth: number
-}
-
-interface HierarchyInput {
+interface OutlineInput {
   tasks: readonly DigdagTaskNode[]
   rootIds: readonly string[]
   inputTables: Map<string, string[]>
@@ -328,12 +354,12 @@ function stackHeight(count: number): number {
 }
 
 /**
- * Lays the task tree out as a left-to-right flow: siblings run rightwards from
- * the left-hand origin, and every child task sits in the band directly below
- * its parent card. Tables attached to a task are placed inline — inputs to the
- * left of the card, outputs to the right — so data reads left to right too.
+ * Lays the task tree out as an indented outline: one task per row, top to
+ * bottom in execution order, each level of nesting stepped to the right. A wide
+ * tree stays narrow this way, and depth reads at a glance from the indent.
+ * Tables attached to a task sit on its own row — inputs left, outputs right.
  */
-function hierarchicalLayout({ tasks, rootIds, inputTables, outputTables }: HierarchyInput): Map<string, GraphRect> {
+function outlineLayout({ tasks, rootIds, inputTables, outputTables }: OutlineInput): Map<string, GraphRect> {
   const rects = new Map<string, GraphRect>()
   const byId = new Map(tasks.map((task) => [task.id, task]))
   if (byId.size === 0) return rects
@@ -342,94 +368,45 @@ function hierarchicalLayout({ tasks, rootIds, inputTables, outputTables }: Hiera
     .filter((childId) => byId.has(childId))
     .sort((left, right) => (byId.get(left)?.order ?? 0) - (byId.get(right)?.order ?? 0))
 
-  const measures = new Map<string, SubtreeMeasure>()
-  const measure = (id: string): SubtreeMeasure => {
-    const cached = measures.get(id)
-    if (cached) return cached
-    const inputs = inputTables.get(id)?.length ?? 0
-    const outputs = outputTables.get(id)?.length ?? 0
-    const leftWidth = inputs > 0 ? TABLE_WIDTH + TABLE_GAP : 0
-    const rightWidth = outputs > 0 ? TABLE_WIDTH + TABLE_GAP : 0
-    const ownWidth = leftWidth + NODE_WIDTH + rightWidth
-    const height = Math.max(NODE_HEIGHT, stackHeight(inputs), stackHeight(outputs))
-
-    const childMeasures = childIdsOf(id).map((childId) => measure(childId))
-    const childOffsets: number[] = []
-    let childrenRowWidth = 0
-    childMeasures.forEach((child, index) => {
-      if (index > 0) childrenRowWidth += COLUMN_GAP
-      childOffsets.push(childrenRowWidth)
-      childrenRowWidth += child.width
-    })
-
-    // Align the parent card with its first child so the containment arrow drops
-    // straight down instead of skewing across the band.
-    let ownOffset = 0
-    let childrenOffset = 0
-    if (childMeasures.length > 0) {
-      const delta = leftWidth - (childOffsets[0] + childMeasures[0].taskOffset)
-      if (delta >= 0) childrenOffset = delta
-      else ownOffset = -delta
-    }
-
-    const result: SubtreeMeasure = {
-      width: Math.max(ownOffset + ownWidth, childrenOffset + childrenRowWidth),
-      taskOffset: ownOffset + leftWidth,
-      ownOffset,
-      childrenOffset,
-      childOffsets,
-      height,
-      leftWidth,
-    }
-    measures.set(id, result)
-    return result
-  }
-
   const roots = rootIds.filter((id) => byId.has(id))
   const effectiveRoots = roots.length > 0
     ? roots
     : tasks.filter((task) => !task.parentId || !byId.has(task.parentId)).map((task) => task.id)
 
-  const rowHeights: number[] = []
-  const collectRow = (id: string, depth: number) => {
-    rowHeights[depth] = Math.max(rowHeights[depth] ?? 0, measure(id).height)
-    childIdsOf(id).forEach((childId) => collectRow(childId, depth + 1))
+  const rows: Array<{ id: string; depth: number }> = []
+  const visit = (id: string, depth: number) => {
+    rows.push({ id, depth })
+    childIdsOf(id).forEach((childId) => visit(childId, depth + 1))
   }
-  effectiveRoots.forEach((id) => collectRow(id, 0))
+  effectiveRoots.forEach((id) => visit(id, 0))
 
-  const rowY: number[] = []
-  rowHeights.forEach((_, depth) => {
-    rowY[depth] = depth === 0 ? CANVAS_MARGIN : rowY[depth - 1] + rowHeights[depth - 1] + ROW_GAP
-  })
+  // One shared left margin, so every input table column lines up.
+  const leftMargin = rows.some(({ id }) => (inputTables.get(id)?.length ?? 0) > 0)
+    ? TABLE_WIDTH + TABLE_GAP
+    : 0
 
-  const place = (id: string, originX: number, depth: number) => {
-    const item = measure(id)
-    const bandCenter = rowY[depth] + rowHeights[depth] / 2
-    const taskX = originX + item.taskOffset
-    rects.set(id, { x: taskX, y: bandCenter - NODE_HEIGHT / 2, width: NODE_WIDTH, height: NODE_HEIGHT })
+  let top = CANVAS_MARGIN
+  for (const { id, depth } of rows) {
+    const inputs = inputTables.get(id) ?? []
+    const outputs = outputTables.get(id) ?? []
+    const rowHeight = Math.max(NODE_HEIGHT, stackHeight(inputs.length), stackHeight(outputs.length))
+    const center = top + rowHeight / 2
+    const taskX = CANVAS_MARGIN + leftMargin + depth * INDENT_WIDTH
+
+    rects.set(id, { x: taskX, y: center - NODE_HEIGHT / 2, width: NODE_WIDTH, height: NODE_HEIGHT })
 
     const placeStack = (tableIds: readonly string[], x: number) => {
-      let y = bandCenter - stackHeight(tableIds.length) / 2
+      let y = center - stackHeight(tableIds.length) / 2
       tableIds.forEach((tableId) => {
         rects.set(tableId, { x, y, width: TABLE_WIDTH, height: TABLE_HEIGHT })
         y += TABLE_HEIGHT + TABLE_STACK_GAP
       })
     }
-    const inputs = inputTables.get(id) ?? []
-    const outputs = outputTables.get(id) ?? []
-    if (inputs.length > 0) placeStack(inputs, originX + item.ownOffset)
+    if (inputs.length > 0) placeStack(inputs, taskX - TABLE_WIDTH - TABLE_GAP)
     if (outputs.length > 0) placeStack(outputs, taskX + NODE_WIDTH + TABLE_GAP)
 
-    childIdsOf(id).forEach((childId, index) => {
-      place(childId, originX + item.childrenOffset + item.childOffsets[index], depth + 1)
-    })
+    top += rowHeight + ROW_GAP
   }
-
-  let cursor = CANVAS_MARGIN
-  effectiveRoots.forEach((id) => {
-    place(id, cursor, 0)
-    cursor += measure(id).width + COLUMN_GAP
-  })
 
   return rects
 }
@@ -471,6 +448,7 @@ function anchorSides(source: GraphRect, target: GraphRect, forceVertical: boolea
 function assignEdgeAnchors(nodes: Node[], edges: Edge[]): Edge[] {
   const rects = nodeRects(nodes)
   return edges.map((edge) => {
+    if (edge.sourceHandle && edge.targetHandle) return edge
     const source = rects.get(edge.source)
     const target = rects.get(edge.target)
     if (!source || !target) return edge
@@ -489,11 +467,16 @@ function taskElements(
 ): { nodes: Node[]; edges: Edge[] } {
   if (!document) return { nodes: [], edges: [] }
   const ids = new Set(document.tasks.map((task) => task.id))
+  const childMode = (task: DigdagTaskNode): 'parallel' | 'sequential' | undefined => {
+    if (task.children.length === 0) return undefined
+    return parallelSettingsForTask(task).enabled ? 'parallel' : 'sequential'
+  }
+  const byId = new Map(document.tasks.map((task) => [task.id, task]))
   const nodes: Node[] = document.tasks.map((task) => ({
     id: task.id,
     type: 'anchored',
     position: { x: 0, y: 0 },
-    data: { label: taskLabel(task) },
+    data: { label: taskLabel(task, childMode(task)) },
     className: `workflow-node tone-${operatorTone(task.operator)}${selectedTaskId === task.id ? ' is-selected' : ''}${nodeClass(`${task.name} ${operatorLabel(task)} ${task.documentPath} ${task.database ?? ''}`, searchQuery, filters, 'task', taskFilterValues(task))}`,
     style: { width: NODE_WIDTH, minHeight: NODE_HEIGHT },
   }))
@@ -504,14 +487,22 @@ function taskElements(
     const key = `${source}:${target}:${kind}`
     if (edgeKeys.has(key)) return
     edgeKeys.add(key)
+    // The outline gives each relationship its own gutter: containment runs down
+    // the left of the children it owns, execution order down the right.
+    const anchors = kind.startsWith('contains')
+      ? { sourceHandle: `${Position.Left}-source`, targetHandle: `${Position.Left}-target` }
+      : kind === 'sequence'
+        ? { sourceHandle: `${Position.Right}-source`, targetHandle: `${Position.Right}-target` }
+        : undefined
     edges.push({
       id: key,
       source,
       target,
-      type: kind === 'sequence' || kind === 'contains' ? 'smoothstep' : 'default',
+      type: kind === 'sequence' || kind.startsWith('contains') ? 'smoothstep' : 'default',
       label,
       className: `workflow-edge edge-${kind}`,
       markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+      ...(anchors ?? {}),
     })
   }
   // A task-only view intentionally omits table edges. The combined view adds
@@ -521,7 +512,9 @@ function taskElements(
     if (edge.kind !== 'table') addEdge(edge.from, edge.to, edge.kind)
   })
   document.tasks.forEach((task) => {
-    if (task.parentId) addEdge(task.parentId, task.id, 'contains')
+    if (!task.parentId) return
+    const parent = byId.get(task.parentId)
+    addEdge(task.parentId, task.id, parent && childMode(parent) === 'parallel' ? 'contains-parallel' : 'contains')
   })
   return { nodes, edges }
 }
@@ -535,7 +528,7 @@ function pipelineElements(
 ): { nodes: Node[]; edges: Edge[] } {
   const elements = taskElements(analysis, document, selectedTaskId, searchQuery, filters)
   if (!document) return elements
-  const rects = hierarchicalLayout({
+  const rects = outlineLayout({
     tasks: document.tasks,
     rootIds: document.rootTaskIds,
     inputTables: new Map(),
@@ -618,7 +611,7 @@ function combinedElements(
     })
   })
 
-  const rects = hierarchicalLayout({
+  const rects = outlineLayout({
     tasks: document.tasks,
     rootIds: document.rootTaskIds,
     inputTables,
@@ -731,7 +724,7 @@ export function WorkflowGraph({
         nodes={elements.nodes}
         edges={elements.edges}
         nodeTypes={nodeTypes}
-        fitView
+        fitView={mode === 'lineage'}
         // Every mode may zoom out as far as it needs: clamping the fit leaves
         // part of the graph off-screen, which is worse than small cards.
         fitViewOptions={{ padding: 0.12, minZoom: 0.1, maxZoom: 1.15 }}
@@ -745,6 +738,9 @@ export function WorkflowGraph({
           else setSelectedDataNodeId(node.id)
         }}
       >
+        {mode !== 'lineage' && (
+          <FitToWidth nodes={elements.nodes} signature={`${mode}:${document?.path ?? ''}:${elements.nodes.length}`} />
+        )}
         <Background gap={24} size={1.1} color="#d6dee8" />
         <MiniMap
           pannable

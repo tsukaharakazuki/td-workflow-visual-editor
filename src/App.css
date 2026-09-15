@@ -3963,3 +3963,53 @@ button.sidebar-privacy:hover .sidebar-privacy-hint {
   background: #fdf3dc;
   border-radius: 999px;
 }
+
+/* Outline edges: containment down the left gutter, execution order down the
+   right. A parallel parent's children fan out in amber and gain no order. */
+.react-flow__edge.edge-contains .react-flow__edge-path,
+.react-flow__edge.edge-contains-parallel .react-flow__edge-path {
+  stroke-width: 1.4;
+}
+
+.react-flow__edge.edge-contains-parallel .react-flow__edge-path {
+  stroke: #dda13c;
+  stroke-dasharray: 2 5;
+  stroke-linecap: round;
+}
+
+.react-flow__edge.edge-sequence .react-flow__edge-path {
+  stroke: #6f8296;
+  stroke-width: 1.7;
+  stroke-dasharray: none;
+}
+
+/* How a task runs its children, shown on the parent card. */
+.graph-task-mode {
+  display: inline-flex;
+  padding: 2px 7px;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+  border-radius: 999px;
+}
+
+.graph-task-mode.parallel {
+  color: #8a6420;
+  background: #fbf0d8;
+}
+
+.graph-task-mode.sequential {
+  color: #4a6076;
+  background: #eef2f7;
+}
+
+.graph-task-details .graph-task-mode {
+  flex: none;
+  overflow: visible;
+  padding: 2px 6px;
+  font-size: 8px;
+  text-align: left;
+}
