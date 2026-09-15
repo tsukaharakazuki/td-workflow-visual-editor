@@ -22,11 +22,24 @@ interface TaskInspectorProps {
   onOpenFile: (path: string) => void
   onParallelChange: (settings: DigdagParallelSettings) => void
   onRename: (name: string) => void
-  onFieldsChange: (fields: { database?: string; engine?: string }) => void
+  onFieldsChange: (fields: Record<string, string | undefined>) => void
   onSqlSave: (sql: string) => void
 }
 
 type InspectorTab = 'overview' | 'sql' | 'schema'
+type WriteMode = 'create_table' | 'insert_into' | 'none'
+
+const WRITE_MODE_LABEL: Record<WriteMode, string> = {
+  create_table: 'CREATE TABLE',
+  insert_into: 'INSERT INTO',
+  none: '書き込まない',
+}
+
+/** Operators that write their result to a table. */
+function writesATable(operator: string | undefined, hasTarget: boolean): boolean {
+  if (hasTarget) return true
+  return operator === 'td>' || operator === 'td_run>'
+}
 
 function schemaFor(name: string, schemas: WorkflowSchema[]): SchemaTable | undefined {
   const [database, ...rest] = name.includes('.') ? name.split('.') : [undefined, name]
@@ -100,19 +113,30 @@ export function TaskInspector({
   const [databaseDraft, setDatabaseDraft] = useState('')
   const [engineDraft, setEngineDraft] = useState('')
   const [sqlDraft, setSqlDraft] = useState('')
+  const [targetDraft, setTargetDraft] = useState('')
 
   const taskId = analysis?.task.id
   const taskName = analysis?.task.name
   const taskDatabase = analysis?.task.database
   const taskEngine = analysis?.task.engine
   const taskSql = analysis?.sql?.sql
+  // `create_table` and `insert_into` are the two ways a td> task names its
+  // destination; a task carries at most one of them.
+  const operatorConfig = (analysis?.task.operatorConfig ?? analysis?.task.value) as Record<string, unknown> | undefined
+  const configString = (key: string) => typeof operatorConfig?.[key] === 'string' ? operatorConfig[key] as string : undefined
+  const createTable = configString('create_table')
+  const insertInto = configString('insert_into')
+  const writeMode: WriteMode = createTable !== undefined ? 'create_table' : insertInto !== undefined ? 'insert_into' : 'none'
+  const writeTarget = createTable ?? insertInto ?? ''
+
   // Drafts follow the selected task, and pick up whatever a save reparsed.
   useEffect(() => {
     setNameDraft(taskName?.replace(/^\+/, '') ?? '')
     setDatabaseDraft(taskDatabase ?? '')
     setEngineDraft(taskEngine ?? '')
     setSqlDraft(taskSql ?? '')
-  }, [taskId, taskName, taskDatabase, taskEngine, taskSql])
+    setTargetDraft(writeTarget)
+  }, [taskId, taskName, taskDatabase, taskEngine, taskSql, writeTarget])
 
   const inputs = analysis?.sql?.sources ?? []
   const outputs = analysis?.sql?.targets ?? []
@@ -172,7 +196,7 @@ export function TaskInspector({
           </button>
         </div>
       </div>
-      {editing && <p className="inspector-edit-banner"><Pencil size={12} /> 編集モード — 名前・Database・Engineは入力後にフォーカスを外すと保存されます</p>}
+      {editing && <p className="inspector-edit-banner"><Pencil size={12} /> 編集モード — 名前・Database・Engine・書き込み先は、入力後にフォーカスを外すと保存されます</p>}
 
       <div className="inspector-tabs" role="tablist" aria-label="Task details">
         <button type="button" className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>概要</button>
@@ -203,7 +227,7 @@ export function TaskInspector({
                   <input
                     className="inspector-field-input"
                     value={engineDraft}
-                    placeholder="presto / hive"
+                    placeholder="trino / hive"
                     list="inspector-engine-options"
                     spellCheck={false}
                     onChange={(event) => setEngineDraft(event.target.value)}
@@ -214,6 +238,56 @@ export function TaskInspector({
                 <div><dt>Depth</dt><dd>{task.depth}</dd></div>
               </dl>
             </section>
+            {writesATable(task.operator, writeMode !== 'none') && (
+              <section className="property-section">
+                <div className="section-heading-row">
+                  <h3>書き込み先</h3>
+                  {!editing && <span className="write-mode-badge">{WRITE_MODE_LABEL[writeMode]}</span>}
+                </div>
+                {editing ? (
+                  <>
+                    <div className="write-mode-switch" role="group" aria-label="書き込みモード">
+                      {(['create_table', 'insert_into', 'none'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          className={writeMode === mode ? 'active' : ''}
+                          aria-pressed={writeMode === mode}
+                          onClick={() => {
+                            if (mode === writeMode) return
+                            const name = targetDraft.trim() || `${task.name.replace(/^\+/, '')}_output`
+                            onFieldsChange(mode === 'none'
+                              ? { create_table: '', insert_into: '' }
+                              : mode === 'create_table'
+                                ? { create_table: name, insert_into: '' }
+                                : { insert_into: name, create_table: '' })
+                          }}
+                        >
+                          {WRITE_MODE_LABEL[mode]}
+                        </button>
+                      ))}
+                    </div>
+                    {writeMode !== 'none' && (
+                      <input
+                        className="inspector-field-input write-target-input"
+                        value={targetDraft}
+                        placeholder="テーブル名"
+                        aria-label="書き込み先テーブル名"
+                        spellCheck={false}
+                        onChange={(event) => setTargetDraft(event.target.value)}
+                        onBlur={() => { if (targetDraft.trim() && targetDraft.trim() !== writeTarget) onFieldsChange({ [writeMode]: targetDraft }) }}
+                        onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
+                      />
+                    )}
+                    <p className="write-mode-help">CREATE TABLE は毎回作り直し、INSERT INTO は追記します。</p>
+                  </>
+                ) : (
+                  <dl className="property-list">
+                    <div><dt>テーブル</dt><dd>{writeTarget || '未指定'}</dd></div>
+                  </dl>
+                )}
+              </section>
+            )}
             <section className="property-section">
               <h3>構造</h3>
               <div className="summary-chips">
@@ -356,7 +430,7 @@ export function TaskInspector({
         )}
       </div>
       <datalist id="inspector-engine-options">
-        <option value="presto" />
+        <option value="trino" />
         <option value="hive" />
       </datalist>
     </aside>

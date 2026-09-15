@@ -1223,7 +1223,7 @@ function App() {
       const sql = 'SELECT\n  *\nFROM source_table\n'
       const bytes = new TextEncoder().encode(sql)
       nextArchive = appendArchiveFile(archive, { path: fullSql, kind: 'sql', encoding: 'utf8', text: sql, bytes })
-      value = { 'td>': relativeSql, create_table: `${name}_output`, engine: sibling.engine ?? 'presto' }
+      value = { 'td>': relativeSql, create_table: `${name}_output`, engine: sibling.engine ?? 'trino' }
     } else if (operator === 'if>') {
       value = { 'if>': '${condition}', _do: { '+then': { 'echo>': 'condition matched' } } }
     } else if (operator === 'for_each>') {
@@ -1283,12 +1283,13 @@ function App() {
     }
   }
 
-  const updateTaskFields = (fields: { database?: string; engine?: string }) => {
+  const updateTaskFields = (fields: Record<string, string | undefined>) => {
     const target = selectedTaskDocument()
     if (!target) return
     try {
       const result = setDigdagTaskFields(target.document, target.task.id, fields)
-      const label = Object.keys(fields).join(' / ')
+      const written = Object.entries(fields).filter(([, value]) => value?.trim()).map(([key]) => key)
+      const label = written.length > 0 ? written.join(' / ') : '書き込み先'
       applyDocumentText(target.document.path, result.after.text, `${target.task.name} の ${label} を更新しました`)
       setSelectedTaskId(target.task.id)
     } catch (error) {

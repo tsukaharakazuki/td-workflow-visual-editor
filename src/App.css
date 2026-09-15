@@ -4013,3 +4013,55 @@ button.sidebar-privacy:hover .sidebar-privacy-hint {
   font-size: 8px;
   text-align: left;
 }
+
+/* Choosing how a query writes its result. */
+.write-mode-switch {
+  display: flex;
+  padding: 3px;
+  gap: 2px;
+  background: #f2f5f9;
+  border-radius: 8px;
+}
+
+.write-mode-switch button {
+  flex: 1;
+  min-height: 28px;
+  padding: 0 6px;
+  color: #62748a;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: transparent;
+  border-radius: 6px;
+}
+
+.write-mode-switch button:hover {
+  color: #2f6db2;
+}
+
+.write-mode-switch button.active {
+  color: #23405f;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(31, 45, 61, 0.12);
+}
+
+.write-target-input {
+  margin-top: 8px;
+  text-align: left;
+}
+
+.write-mode-help {
+  margin-top: 7px;
+  color: #8a97a6;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.write-mode-badge {
+  padding: 2px 8px;
+  color: #41698e;
+  font-size: 9px;
+  font-weight: 700;
+  background: #e8f1fb;
+  border-radius: 999px;
+}

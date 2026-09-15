@@ -13,6 +13,15 @@ export interface ReleaseLogEntry {
  */
 export const RELEASE_LOG: readonly ReleaseLogEntry[] = [
   {
+    at: '2026-09-15 23:37:13',
+    summary: 'クエリの書き込み先（CREATE TABLE / INSERT INTO）を切り替えられるように',
+    details: [
+      'Task Inspector の編集モードに「書き込み先」を追加。3択の切り替えとテーブル名の入力',
+      '切り替えてもテーブル名は引き継がれる。「書き込まない」で両方のキーを削除',
+      'Engine の候補を presto から trino / hive に変更。新規タスクの既定値も trino に',
+    ],
+  },
+  {
     at: '2026-09-15 23:27:12',
     summary: 'Add Task に「Group」を追加し、オペレーターのアイコンを整理',
     details: [
