@@ -168,6 +168,25 @@ export interface SchemaTable {
   columns: SchemaColumn[]
 }
 
+/** How a column name was recovered from SQL when no schema sidecar covers the table. */
+export type InferredColumnOrigin = 'output' | 'reference'
+
+export interface InferredColumn {
+  name: string
+  origin: InferredColumnOrigin
+  /** True for `SELECT *`, which is listed first because it stands for the rest. */
+  wildcard?: boolean
+  /** The select-list expression the name came from, when it was written out. */
+  expression?: string
+}
+
+export interface InferredTable {
+  name: string
+  database?: string
+  qualifiedName: string
+  columns: InferredColumn[]
+}
+
 export interface WorkflowSchema {
   format: 'td-workflow-lineage-schema'
   version: 1
@@ -221,6 +240,11 @@ export interface WorkflowTaskAnalysis {
 export interface WorkflowAnalysis {
   documents: DigdagDocument[]
   schemas: WorkflowSchema[]
+  /**
+   * Columns read out of the SQL itself, for tables no schema sidecar describes.
+   * Always a guess: use a real schema when one exists.
+   */
+  inferredTables: InferredTable[]
   tasks: WorkflowTaskAnalysis[]
   tableLineage: TableLineageRecord[]
   columnLineage: ColumnLineageRecord[]

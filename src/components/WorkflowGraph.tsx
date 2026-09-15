@@ -13,6 +13,7 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import { Braces, ChevronDown, Database, EllipsisVertical, GitBranch, Layers3, Network, Repeat2, Search, Table2 } from 'lucide-react'
+import { inferredTableFor } from '../core'
 import { passesGraphFilters, UNSPECIFIED } from './GraphFilterBar'
 import type { GraphFilterGroup, GraphFilterSelection } from './GraphFilterBar'
 import type {
@@ -144,12 +145,19 @@ function schemaTableFor(name: string, analysis: WorkflowAnalysis): SchemaTable |
 
 function TableLabel({ name, analysis, template }: { name: string; analysis: WorkflowAnalysis; template?: string }) {
   const schema = schemaTableFor(name, analysis)
+  // With no schema sidecar, fall back to what the SQL itself reveals.
+  const inferred = schema ? undefined : inferredTableFor(name, analysis.inferredTables)
   const [columnQuery, setColumnQuery] = useState('')
   const [expanded, setExpanded] = useState(false)
   const parts = name.split('.')
-  const tableName = schema?.name ?? parts.at(-1) ?? name
-  const serviceName = schema?.database ?? (parts.slice(0, -1).join('.') || 'Workflow')
-  const allColumns = schema?.columns ?? []
+  const tableName = schema?.name ?? inferred?.name ?? parts.at(-1) ?? name
+  const serviceName = schema?.database ?? inferred?.database ?? (parts.slice(0, -1).join('.') || 'Workflow')
+  const allColumns: Array<{ name: string; type?: string }> = schema?.columns
+    ?? inferred?.columns.map((column) => ({
+      name: column.name,
+      type: column.origin === 'output' ? 'SELECT' : '参照',
+    }))
+    ?? []
   const filteredColumns = allColumns.filter((column) => `${column.name} ${column.type ?? ''}`.toLowerCase().includes(columnQuery.trim().toLowerCase()))
   const columns = columnQuery || expanded ? filteredColumns : filteredColumns.slice(0, 5)
   const remaining = filteredColumns.length - columns.length
@@ -170,6 +178,7 @@ function TableLabel({ name, analysis, template }: { name: string; analysis: Work
           <button className="nodrag nopan graph-column-count" type="button" onClick={(event) => { event.stopPropagation(); setExpanded((current) => !current) }}>
             {allColumns.length} Columns <ChevronDown size={11} className={expanded ? 'is-open' : ''} />
           </button>
+          {inferred && allColumns.length > 0 && <em className="graph-column-inferred" title="スキーマ情報が無いため、SQLから推定したカラムです">推定</em>}
           <span title="Column lineage"><Network size={13} /></span>
         </div>
         <label className="nodrag nopan graph-column-search" onClick={(event) => event.stopPropagation()}>
@@ -248,7 +257,9 @@ function nodeClass(
 
 function tableSearchValue(name: string, analysis: WorkflowAnalysis): string {
   const schema = schemaTableFor(name, analysis)
-  return [name, ...(schema?.columns.map((column) => `${column.name} ${column.type ?? ''}`) ?? [])].join(' ')
+  if (schema) return [name, ...schema.columns.map((column) => `${column.name} ${column.type ?? ''}`)].join(' ')
+  const inferred = inferredTableFor(name, analysis.inferredTables)
+  return [name, ...(inferred?.columns.map((column) => column.name) ?? [])].join(' ')
 }
 
 function layoutGraph(

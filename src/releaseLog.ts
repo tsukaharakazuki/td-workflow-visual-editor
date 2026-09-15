@@ -13,6 +13,16 @@ export interface ReleaseLogEntry {
  */
 export const RELEASE_LOG: readonly ReleaseLogEntry[] = [
   {
+    at: '2026-09-15 22:55:34',
+    summary: 'スキーマ情報が無いZIPでも、SQLからカラムを推定して表示するように変更',
+    details: [
+      '書き込み先テーブルはそのタスクのSELECTリスト、読み込み元は参照されているカラム名から推定',
+      '`SELECT *` の場合は `*` を先頭に表示。推定したカラムには「推定」バッジを付与',
+      'コメント・文字列・関数名・別名は除外。`CROSS JOIN UNNEST(...)` がテーブルとして誤検出されていた点も修正',
+      'Treasure AI Studio 用プロンプト（docs）を、information schema からカラムを取得して sidecar を必ず作る内容に改定',
+    ],
+  },
+  {
     at: '2026-09-10 15:56:42',
     summary: '絞り込み項目が無いプロジェクトでグラフ表示領域が潰れる不具合を修正',
     details: ['フィルター帯が出ないとき、キャンバスがツールバー用の高さに押し込められていた'],

@@ -1631,7 +1631,7 @@ function App() {
               </div>
               <div className={`graph-and-inspector ${(view === 'combined' || view === 'lineage') && !lineageSummaryOpen ? 'graph-full-width' : ''}`}>
                 <WorkflowGraph mode={view === 'pipeline' ? 'pipeline' : view === 'combined' ? 'combined' : 'lineage'} analysis={analysis} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelectTask={setSelectedTaskId} onDropOperator={addOperator} canvasRef={graphRef} searchQuery={graphQuery} filterGroups={graphFilterGroups} filterSelection={activeGraphFilters} />
-                {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} onParallelChange={updateParallelSettings} onRename={renameTask} onFieldsChange={updateTaskFields} onSqlSave={updateTaskSql} />}
+                {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} inferredTables={analysis.inferredTables} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} onParallelChange={updateParallelSettings} onRename={renameTask} onFieldsChange={updateTaskFields} onSqlSave={updateTaskSql} />}
                 {(view === 'combined' || view === 'lineage') && lineageSummaryOpen && (
                   <aside className="lineage-summary-panel">
                     <div className="lineage-summary-header"><Database size={18} /><div><p>Lineage summary</p><h2>{analysis.tableLineage.length} connections</h2></div></div>

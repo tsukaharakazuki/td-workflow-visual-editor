@@ -25,6 +25,7 @@ export {
 export { analyzeWorkflow, buildWorkflowLineage } from './lineage'
 export { addChildTask, parallelSettingsForTask, setTaskParallel } from './parallel'
 export { renameDigdagTask, setDigdagTaskFields, setDigdagTaskQuery } from './task-edit'
+export { inferredTableFor } from './lineage'
 export {
   addSibling,
   addSiblingTask,

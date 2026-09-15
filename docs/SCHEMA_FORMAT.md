@@ -12,6 +12,10 @@ Every canonical sidecar must use:
 
 The contract is deliberately metadata-only. It must not contain row samples, query results, credentials, connection strings, tokens, or other secrets.
 
+## When the sidecar is missing
+
+The sidecar is optional. Without one — a plain TD Toolbelt download, say — the editor falls back to reading column names out of the SQL: a table written by a task takes that query's select list (with `*` listed first when the query selects it), and a table a query reads takes the column names the query mentions against it. Those names are shown with a `推定` badge and carry no types. A sidecar always wins over the fallback, so producing one is what makes columns and types accurate.
+
 ## Document shape
 
 ```json

@@ -11,12 +11,13 @@ import {
   Save,
   Trash2,
 } from 'lucide-react'
-import { findSchemaTable, parallelSettingsForTask } from '../core'
-import type { DigdagParallelSettings, SchemaTable, WorkflowSchema, WorkflowTaskAnalysis } from '../types'
+import { findSchemaTable, inferredTableFor, parallelSettingsForTask } from '../core'
+import type { DigdagParallelSettings, InferredTable, SchemaTable, WorkflowSchema, WorkflowTaskAnalysis } from '../types'
 
 interface TaskInspectorProps {
   analysis?: WorkflowTaskAnalysis
   schemas: WorkflowSchema[]
+  inferredTables: InferredTable[]
   onDelete: () => void
   onOpenFile: (path: string) => void
   onParallelChange: (settings: DigdagParallelSettings) => void
@@ -41,29 +42,39 @@ function TableSchemaCard({
   title,
   name,
   schemas,
+  inferredTables,
   tone,
 }: {
   title: string
   name: string
   schemas: WorkflowSchema[]
+  inferredTables: InferredTable[]
   tone: 'input' | 'output'
 }) {
   const table = schemaFor(name, schemas)
+  // With no schema sidecar, show what the SQL itself reveals, marked as a guess.
+  const inferred = table ? undefined : inferredTableFor(name, inferredTables)
+  const columns: Array<{ name: string; type: string }> = table
+    ? table.columns.map((column) => ({ name: column.name, type: column.type ?? 'unknown' }))
+    : inferred?.columns.map((column) => ({
+      name: column.name,
+      type: column.origin === 'output' ? 'SELECT' : '参照',
+    })) ?? []
   return (
     <div className={`inspector-table-card ${tone}`}>
       <div className="inspector-table-heading">
         <span><Database size={14} /></span>
         <div>
-          <small>{title}</small>
+          <small>{title}{inferred && columns.length > 0 ? ' · SQLから推定' : ''}</small>
           <strong>{name}</strong>
         </div>
       </div>
-      {table ? (
+      {columns.length > 0 ? (
         <div className="inspector-columns">
-          {table.columns.map((column) => (
+          {columns.map((column) => (
             <div key={column.name}>
               <span>{column.name}</span>
-              <small>{column.type ?? 'unknown'}</small>
+              <small>{column.type}</small>
             </div>
           ))}
         </div>
@@ -75,6 +86,7 @@ function TableSchemaCard({
 export function TaskInspector({
   analysis,
   schemas,
+  inferredTables,
   onDelete,
   onOpenFile,
   onParallelChange,
@@ -315,10 +327,10 @@ export function TaskInspector({
               <h3>テーブル入出力</h3>
               <div className="inspector-table-grid">
                 {inputs.map((input) => (
-                  <TableSchemaCard key={`input:${input.qualifiedName}`} title="INPUT" name={input.qualifiedName} schemas={schemas} tone="input" />
+                  <TableSchemaCard key={`input:${input.qualifiedName}`} title="INPUT" name={input.qualifiedName} schemas={schemas} inferredTables={inferredTables} tone="input" />
                 ))}
                 {outputs.map((output) => (
-                  <TableSchemaCard key={`output:${output.qualifiedName}`} title="OUTPUT" name={output.qualifiedName} schemas={schemas} tone="output" />
+                  <TableSchemaCard key={`output:${output.qualifiedName}`} title="OUTPUT" name={output.qualifiedName} schemas={schemas} inferredTables={inferredTables} tone="output" />
                 ))}
                 {inputs.length === 0 && outputs.length === 0 && (
                   <div className="inline-empty"><Database size={22} /><p>テーブル入出力は検出されませんでした。</p></div>

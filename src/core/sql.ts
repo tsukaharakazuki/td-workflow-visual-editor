@@ -14,10 +14,20 @@ const NAME_CHAR = '(?:[A-Za-z0-9_-]|\\$(?!\\{))'
 const TEMPLATED_NAME = `(?:${TEMPLATE}|[A-Za-z_]${NAME_CHAR}*)(?:${TEMPLATE}|${NAME_CHAR}+)*`
 const IDENTIFIER = `${TEMPLATED_NAME}|"[^"]+"|\`[^\`]+\``
 const TABLE_TOKEN = `((?:${IDENTIFIER})(?:\\s*\\.\\s*(?:${IDENTIFIER})){0,2})`
+/**
+ * Words that may follow FROM or JOIN without naming a table. Without this,
+ * `CROSS JOIN UNNEST(...)` invents a table called UNNEST.
+ */
+const NON_TABLE_SOURCES = new Set(['unnest', 'lateral', 'table', 'values'])
 const RESERVED_ALIAS = new Set([
   'as', 'on', 'where', 'group', 'order', 'limit', 'having', 'union', 'join',
   'left', 'right', 'full', 'inner', 'outer', 'cross', 'natural', '与',
 ])
+
+/** Blanks comments and string literals so identifier scans see only SQL structure. */
+export function maskSqlText(sql: string): string {
+  return maskSql(sql)
+}
 
 function maskSql(sql: string): string {
   const chars = sql.split('')
@@ -208,6 +218,7 @@ function tableReferencesFromSources(
     const full = match[0]
     const raw = match[1]
     if (!raw || raw.startsWith('(')) continue
+    if (NON_TABLE_SOURCES.has(raw.trim().toLowerCase())) continue
     const location = match.index ?? 0
     const reference = parseSqlTableReference(raw, database, location)
     if (isCte(reference, ctes)) continue
@@ -226,6 +237,7 @@ function tableReferencesFromSources(
     for (const term of terms.slice(1)) {
       const candidate = term.trim().match(new RegExp(`^${TABLE_TOKEN}`, 'i'))?.[1]
       if (!candidate || candidate.startsWith('(')) continue
+      if (NON_TABLE_SOURCES.has(candidate.trim().toLowerCase())) continue
       const reference = parseSqlTableReference(candidate, database, (match.index ?? 0) + (match[0].indexOf(candidate)))
       if (isCte(reference, ctes)) continue
       if (!references.some((existing) => existing.location === reference.location)) references.push(reference)

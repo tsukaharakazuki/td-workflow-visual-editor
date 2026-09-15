@@ -1,5 +1,5 @@
 import { parse as parseYaml } from 'yaml'
-import { analyzeSql, parseSqlTableReference } from './sql'
+import { analyzeSql, maskSqlText, parseSqlTableReference } from './sql'
 import {
   parseWorkflowSchema,
   schemaColumnsForReference,
@@ -14,6 +14,8 @@ import type {
   PipelineEdge,
   SqlAnalysis,
   SqlConfidence,
+  InferredColumn,
+  InferredTable,
   SqlTableReference,
   TableLineageRecord,
   VariableScope,
@@ -428,6 +430,177 @@ function tableLineageForTask(analysis: WorkflowTaskAnalysis): TableLineageRecord
   return records
 }
 
+
+/**
+ * Words that are part of the query's own grammar rather than a column. `time`
+ * is deliberately absent: it is a real Treasure Data column.
+ */
+const SQL_KEYWORDS = new Set([
+  'select', 'from', 'where', 'group', 'having', 'join', 'left', 'right', 'inner', 'outer',
+  'cross', 'full', 'natural', 'on', 'using', 'union', 'intersect', 'except', 'all', 'any',
+  'limit', 'offset', 'with', 'recursive', 'as', 'and', 'or', 'not', 'null', 'true', 'false',
+  'case', 'when', 'then', 'else', 'end', 'distinct', 'over', 'partition', 'by', 'order',
+  'asc', 'desc', 'nulls', 'first', 'last', 'is', 'like', 'ilike', 'rlike', 'between', 'in',
+  'exists', 'cast', 'try_cast', 'insert', 'into', 'create', 'table', 'view', 'if', 'values',
+  'unnest', 'lateral', 'row', 'rows', 'range', 'unbounded', 'preceding', 'following',
+  'current', 'interval', 'year', 'month', 'day', 'hour', 'minute', 'second', 'varchar',
+  'bigint', 'integer', 'int', 'double', 'boolean', 'array', 'map', 'json', 'timestamp',
+  'date', 'escape', 'at', 'zone', 'filter', 'window', 'fetch', 'next', 'only',
+])
+
+/** Digdag interpolation is not part of the SQL text for column purposes. */
+function withoutTemplates(sql: string): string {
+  return sql.replace(/\$\{[^{}]*\}/g, ' ')
+}
+
+/** A name a query invents for itself is not a column of the tables it reads. */
+function aliasesDefinedIn(text: string): Set<string> {
+  const names = new Set<string>()
+  for (const match of text.matchAll(/\bas\s+([A-Za-z_][A-Za-z0-9_]*)/gi)) {
+    if (match[1]) names.add(match[1].toLowerCase())
+  }
+  return names
+}
+
+function usableColumnName(name: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)
+}
+
+function inferredColumnOrder(left: InferredColumn, right: InferredColumn): number {
+  if (left.wildcard !== right.wildcard) return left.wildcard ? -1 : 1
+  if (left.origin !== right.origin) return left.origin === 'output' ? -1 : 1
+  return 0
+}
+
+/** Guards against a card with hundreds of guessed names. */
+const MAX_INFERRED_COLUMNS = 120
+
+/**
+ * Names a query mentions against the tables it reads. Only a qualified
+ * reference, or a bare name in a query with a single source, is attributed;
+ * anything ambiguous is dropped rather than guessed at.
+ */
+function referencedColumns(
+  sql: SqlAnalysis,
+): Array<{ source: SqlTableReference; column: string }> {
+  const text = withoutTemplates(maskSqlText(sql.sql))
+  const aliases = new Map<string, SqlTableReference>()
+  const reserved = new Set<string>(sql.cteNames.map((name) => name.toLowerCase()))
+  for (const source of sql.sources) {
+    aliases.set(source.name.toLowerCase(), source)
+    reserved.add(source.name.toLowerCase())
+    if (source.database) reserved.add(source.database.toLowerCase())
+    if (source.alias) {
+      aliases.set(source.alias.toLowerCase(), source)
+      reserved.add(source.alias.toLowerCase())
+    }
+  }
+  for (const alias of aliasesDefinedIn(text)) reserved.add(alias)
+
+  const found: Array<{ source: SqlTableReference; column: string }> = []
+  const seen = new Set<string>()
+  for (const match of text.matchAll(/(?:([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*)?([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    const qualifier = match[1]?.toLowerCase()
+    const column = match[2]
+    if (!column) continue
+    const end = (match.index ?? 0) + match[0].length
+    // A name followed by "(" is a function call, not a column.
+    if (text.slice(end).match(/^\s*\(/)) continue
+    const key = column.toLowerCase()
+    if (reserved.has(key) || SQL_KEYWORDS.has(key)) continue
+    const source = qualifier
+      ? aliases.get(qualifier)
+      // A single-letter bare name is a table alias in practice, never a column.
+      : sql.sources.length === 1 && column.length > 1 ? sql.sources[0] : undefined
+    if (!source) continue
+    const unique = `${tableKey(source)}:${key}`
+    if (seen.has(unique)) continue
+    seen.add(unique)
+    found.push({ source, column })
+  }
+  return found
+}
+
+/**
+ * Recovers column names from the SQL for tables no schema sidecar describes: a
+ * written table takes the query's select list, and a read table takes the
+ * columns the query mentions against it. Both are guesses, and are labelled as
+ * such wherever they are shown.
+ */
+function inferredTablesFromSql(analyses: readonly WorkflowTaskAnalysis[]): InferredTable[] {
+  const tables = new Map<string, InferredTable & { seen: Map<string, InferredColumn> }>()
+
+  const tableFor = (reference: SqlTableReference) => {
+    const key = tableKey(reference)
+    const existing = tables.get(key)
+    if (existing) return existing
+    const created = {
+      name: reference.name,
+      ...(reference.database ? { database: reference.database } : {}),
+      qualifiedName: reference.qualifiedName,
+      columns: [] as InferredColumn[],
+      seen: new Map<string, InferredColumn>(),
+    }
+    tables.set(key, created)
+    return created
+  }
+
+  const addColumn = (reference: SqlTableReference, column: InferredColumn) => {
+    const table = tableFor(reference)
+    const key = column.name.toLowerCase()
+    const existing = table.seen.get(key)
+    // A name written in a select list beats the same name merely referenced.
+    if (existing && !(existing.origin === 'reference' && column.origin === 'output')) return
+    if (existing) table.columns.splice(table.columns.indexOf(existing), 1)
+    table.seen.set(key, column)
+    table.columns.push(column)
+  }
+
+  for (const analysis of analyses) {
+    const sql = analysis.sql
+    if (!sql) continue
+
+    for (const target of sql.targets) {
+      for (const column of sql.outputColumns) {
+        if (column.wildcard) {
+          addColumn(target, { name: '*', origin: 'output', wildcard: true })
+          continue
+        }
+        if (!usableColumnName(column.name)) continue
+        addColumn(target, {
+          name: column.name,
+          origin: 'output',
+          ...(column.expression && column.expression !== column.name ? { expression: column.expression } : {}),
+        })
+      }
+    }
+
+    if (sql.sources.length === 0) continue
+    for (const { source, column } of referencedColumns(sql)) {
+      addColumn(source, { name: column, origin: 'reference' })
+    }
+    // `SELECT *` says nothing about the names, but it does say every column is read.
+    if (sql.outputColumns.some((column) => column.wildcard)) {
+      for (const source of sql.sources) addColumn(source, { name: '*', origin: 'reference', wildcard: true })
+    }
+  }
+
+  return [...tables.values()].map(({ seen, ...table }) => {
+    void seen
+    return { ...table, columns: [...table.columns].sort(inferredColumnOrder).slice(0, MAX_INFERRED_COLUMNS) }
+  })
+}
+
+/** Finds guessed columns for a table, by qualified name or bare table name. */
+export function inferredTableFor(
+  name: string,
+  tables: readonly InferredTable[],
+): InferredTable | undefined {
+  const normalized = name.toLowerCase()
+  return tables.find((table) => table.qualifiedName.toLowerCase() === normalized)
+    ?? tables.find((table) => table.name.toLowerCase() === normalized)
+}
+
 function includeResolverFor(documentPath: string, files: Map<string, WorkflowFile>): (path: string) => unknown {
   return (reference: string) => {
     const resolved = resolveReferencePath(documentPath, reference)
@@ -471,6 +644,7 @@ export function analyzeWorkflow(
   }
 
   const tasks = taskAnalyses(documents, files, diagnostics)
+  const inferredTables = inferredTablesFromSql(tasks)
   const tableLineage = tasks.flatMap(tableLineageForTask)
   const columnLineage = tasks.flatMap((task) => columnLineageForTask(task, schemas))
   const edges = [
@@ -478,7 +652,7 @@ export function analyzeWorkflow(
     ...tableEdges(tasks, tableLineage),
     ...requireEdges(tasks),
   ]
-  return { documents, schemas, tasks, tableLineage, columnLineage, edges, diagnostics }
+  return { documents, schemas, inferredTables, tasks, tableLineage, columnLineage, edges, diagnostics }
 }
 
 export const buildWorkflowLineage = analyzeWorkflow

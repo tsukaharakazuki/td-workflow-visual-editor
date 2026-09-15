@@ -3951,3 +3951,15 @@ button.sidebar-privacy:hover .sidebar-privacy-hint {
   font-size: 12px;
   text-align: center;
 }
+
+/* Columns recovered from SQL rather than a schema sidecar. */
+.graph-column-inferred {
+  padding: 1px 6px;
+  color: #8a6d20;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: #fdf3dc;
+  border-radius: 999px;
+}
