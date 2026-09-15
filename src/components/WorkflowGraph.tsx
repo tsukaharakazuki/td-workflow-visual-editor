@@ -48,6 +48,12 @@ const TABLE_HEIGHT = 274
 const INDENT_WIDTH = 58
 /** Vertical gap between rows of the outline. */
 const ROW_GAP = 34
+/** How far left of a card the containment line runs. */
+const CONTAINS_GUTTER = 18
+/** The execution-order line runs outside the containment one. */
+const SEQUENCE_GUTTER = 46
+/** Room at the left of the outline for both gutter lines. */
+const GUTTER_WIDTH = 64
 /** Gap between a task card and the table cards attached to its sides. */
 const TABLE_GAP = 64
 /** Vertical gap between table cards stacked on the same side of a task. */
@@ -391,7 +397,7 @@ function outlineLayout({ tasks, rootIds, inputTables, outputTables }: OutlineInp
     const outputs = outputTables.get(id) ?? []
     const rowHeight = Math.max(NODE_HEIGHT, stackHeight(inputs.length), stackHeight(outputs.length))
     const center = top + rowHeight / 2
-    const taskX = CANVAS_MARGIN + leftMargin + depth * INDENT_WIDTH
+    const taskX = CANVAS_MARGIN + GUTTER_WIDTH + leftMargin + depth * INDENT_WIDTH
 
     rects.set(id, { x: taskX, y: center - NODE_HEIGHT / 2, width: NODE_WIDTH, height: NODE_HEIGHT })
 
@@ -432,17 +438,14 @@ function nodeRects(nodes: Node[]): Map<string, GraphRect> {
  * Picks which of the four sides an edge leaves and enters. Containment edges
  * always drop out of the bottom of the parent so the hierarchy reads downwards.
  */
-function anchorSides(source: GraphRect, target: GraphRect, forceVertical: boolean): { source: Position; target: Position } {
+/**
+ * Every arrow enters its target from the left, so every arrowhead points the
+ * same way. Mixing left-to-right and right-to-left arrows in one picture makes
+ * the direction of flow something you have to work out per edge.
+ */
+function anchorSides(source: GraphRect, target: GraphRect): { source: Position; target: Position } {
   const dx = (target.x + target.width / 2) - (source.x + source.width / 2)
-  const dy = (target.y + target.height / 2) - (source.y + source.height / 2)
-  if (forceVertical || Math.abs(dy) > Math.abs(dx)) {
-    return dy >= 0
-      ? { source: Position.Bottom, target: Position.Top }
-      : { source: Position.Top, target: Position.Bottom }
-  }
-  return dx >= 0
-    ? { source: Position.Right, target: Position.Left }
-    : { source: Position.Left, target: Position.Right }
+  return { source: dx >= 0 ? Position.Right : Position.Left, target: Position.Left }
 }
 
 function assignEdgeAnchors(nodes: Node[], edges: Edge[]): Edge[] {
@@ -452,8 +455,7 @@ function assignEdgeAnchors(nodes: Node[], edges: Edge[]): Edge[] {
     const source = rects.get(edge.source)
     const target = rects.get(edge.target)
     if (!source || !target) return edge
-    const forceVertical = typeof edge.className === 'string' && edge.className.includes('edge-contains')
-    const sides = anchorSides(source, target, forceVertical)
+    const sides = anchorSides(source, target)
     return { ...edge, sourceHandle: `${sides.source}-source`, targetHandle: `${sides.target}-target` }
   })
 }
@@ -487,18 +489,21 @@ function taskElements(
     const key = `${source}:${target}:${kind}`
     if (edgeKeys.has(key)) return
     edgeKeys.add(key)
-    // The outline gives each relationship its own gutter: containment runs down
-    // the left of the children it owns, execution order down the right.
-    const anchors = kind.startsWith('contains')
-      ? { sourceHandle: `${Position.Left}-source`, targetHandle: `${Position.Left}-target` }
-      : kind === 'sequence'
-        ? { sourceHandle: `${Position.Right}-source`, targetHandle: `${Position.Right}-target` }
-        : undefined
+    // Both run down the left margin so every arrowhead points right: containment
+    // on the inner line, execution order on the outer one.
+    const outlined = kind === 'sequence' || kind.startsWith('contains')
+    const anchors = outlined
+      ? {
+        sourceHandle: `${Position.Left}-source`,
+        targetHandle: `${Position.Left}-target`,
+        pathOptions: { offset: kind === 'sequence' ? SEQUENCE_GUTTER : CONTAINS_GUTTER, borderRadius: 10 },
+      }
+      : undefined
     edges.push({
       id: key,
       source,
       target,
-      type: kind === 'sequence' || kind.startsWith('contains') ? 'smoothstep' : 'default',
+      type: outlined ? 'smoothstep' : 'default',
       label,
       className: `workflow-edge edge-${kind}`,
       markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },

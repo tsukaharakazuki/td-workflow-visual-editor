@@ -13,6 +13,14 @@ export interface ReleaseLogEntry {
  */
 export const RELEASE_LOG: readonly ReleaseLogEntry[] = [
   {
+    at: '2026-09-15 23:19:24',
+    summary: '矢印の向きを左→右に統一',
+    details: [
+      'すべての矢印がカードの左辺に入るようにし、右→左の矢印をなくした',
+      '実行順の線は包含の線の1本外側を通す形に変更（右側の溝は廃止）',
+    ],
+  },
+  {
     at: '2026-09-15 23:13:28',
     summary: 'タスクの流れを、子タスクを縦に並べたインデント表示に変更',
     details: [
