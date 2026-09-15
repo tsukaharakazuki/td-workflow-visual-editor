@@ -44,16 +44,17 @@ const NODE_WIDTH = 260
 const NODE_HEIGHT = 112
 const TABLE_WIDTH = 310
 const TABLE_HEIGHT = 274
-/** Horizontal step per nesting level in the outline. */
-const INDENT_WIDTH = 58
+/**
+ * Horizontal step per nesting level. Wide enough that a parent's centre line —
+ * where the execution-order arrow runs — clears the cards of its own children.
+ */
+const INDENT_WIDTH = 168
 /** Vertical gap between rows of the outline. */
 const ROW_GAP = 34
 /** How far left of a card the containment line runs. */
-const CONTAINS_GUTTER = 18
-/** The execution-order line runs outside the containment one. */
-const SEQUENCE_GUTTER = 46
-/** Room at the left of the outline for both gutter lines. */
-const GUTTER_WIDTH = 64
+const CONTAINS_GUTTER = 20
+/** Room at the left of the outline for the containment line. */
+const GUTTER_WIDTH = 36
 /** Gap between a task card and the table cards attached to its sides. */
 const TABLE_GAP = 64
 /** Vertical gap between table cards stacked on the same side of a task. */
@@ -494,16 +495,22 @@ function taskElements(
     const key = `${source}:${target}:${kind}`
     if (edgeKeys.has(key)) return
     edgeKeys.add(key)
-    // Both run down the left margin so every arrowhead points right: containment
-    // on the inner line, execution order on the outer one.
-    const outlined = kind === 'sequence' || kind.startsWith('contains')
-    const anchors = outlined
+    // Execution order drops straight down the middle from one task to the next;
+    // containment hangs off the left, where it cannot be mistaken for order.
+    const anchors = kind === 'sequence'
       ? {
-        sourceHandle: `${Position.Left}-source`,
-        targetHandle: `${Position.Left}-target`,
-        pathOptions: { offset: kind === 'sequence' ? SEQUENCE_GUTTER : CONTAINS_GUTTER, borderRadius: 10 },
+        sourceHandle: `${Position.Bottom}-source`,
+        targetHandle: `${Position.Top}-target`,
+        pathOptions: { offset: 0, borderRadius: 0 },
       }
-      : undefined
+      : kind.startsWith('contains')
+        ? {
+          sourceHandle: `${Position.Left}-source`,
+          targetHandle: `${Position.Left}-target`,
+          pathOptions: { offset: CONTAINS_GUTTER, borderRadius: 10 },
+        }
+        : undefined
+    const outlined = kind === 'sequence' || kind.startsWith('contains')
     edges.push({
       id: key,
       source,

@@ -13,6 +13,15 @@ export interface ReleaseLogEntry {
  */
 export const RELEASE_LOG: readonly ReleaseLogEntry[] = [
   {
+    at: '2026-09-15 23:43:16',
+    summary: '順次実行の矢印をカード中央から真下へ引くように変更',
+    details: [
+      'インデント幅を58pxから168pxに拡大し、親の中央線が子カードに重ならないように',
+      '順次実行はカード下端の中央から次のカード上端の中央へ、まっすぐな矢印',
+      '並列と包含はこれまでどおり左の溝から分岐',
+    ],
+  },
+  {
     at: '2026-09-15 23:37:13',
     summary: 'クエリの書き込み先（CREATE TABLE / INSERT INTO）を切り替えられるように',
     details: [
