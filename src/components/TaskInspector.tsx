@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  BookOpen,
   Braces,
   Code2,
   Database,
@@ -11,20 +12,37 @@ import {
   Save,
   Trash2,
 } from 'lucide-react'
-import { findSchemaTable, inferredTableFor, parallelSettingsForTask } from '../core'
+import {
+  COMMON_TASK_FIELDS,
+  findSchemaTable,
+  handledTaskKeys,
+  inferredTableFor,
+  operatorDefinition,
+  operatorFields,
+  parallelSettingsForTask,
+} from '../core'
 import type { DigdagParallelSettings, InferredTable, SchemaTable, WorkflowSchema, WorkflowTaskAnalysis } from '../types'
+import { AddFieldPicker, OperatorFieldRow, blankValueFor } from './OperatorSettings'
+import { ExportEditor } from './ExportEditor'
 
 interface TaskInspectorProps {
   analysis?: WorkflowTaskAnalysis
   schemas: WorkflowSchema[]
   inferredTables: InferredTable[]
+  /** Values `${...}` resolves to for this task, for the _export preview. */
+  resolvedVariables?: Record<string, unknown>
   onDelete: () => void
   onOpenFile: (path: string) => void
   onParallelChange: (settings: DigdagParallelSettings) => void
   onRename: (name: string) => void
   onFieldsChange: (fields: Record<string, string | undefined>) => void
+  onConfigChange: (values: Record<string, unknown>) => void
+  onExportChange: (variables: Record<string, unknown>) => void
   onSqlSave: (sql: string) => void
 }
+
+/** `_export` is edited in its own section, not among the operator settings. */
+const COMMON_FIELDS_IN_FORM = COMMON_TASK_FIELDS.filter((field) => field.key !== '_export' && field.key !== '_parallel')
 
 type InspectorTab = 'overview' | 'sql' | 'schema'
 type WriteMode = 'create_table' | 'insert_into' | 'none'
@@ -100,27 +118,26 @@ export function TaskInspector({
   analysis,
   schemas,
   inferredTables,
+  resolvedVariables,
   onDelete,
   onOpenFile,
   onParallelChange,
   onRename,
   onFieldsChange,
+  onConfigChange,
+  onExportChange,
   onSqlSave,
 }: TaskInspectorProps) {
   const [tab, setTab] = useState<InspectorTab>('overview')
   const [editing, setEditing] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
-  const [databaseDraft, setDatabaseDraft] = useState('')
-  const [engineDraft, setEngineDraft] = useState('')
   const [sqlDraft, setSqlDraft] = useState('')
   const [targetDraft, setTargetDraft] = useState('')
 
   const taskId = analysis?.task.id
   const taskName = analysis?.task.name
-  const taskDatabase = analysis?.task.database
-  const taskEngine = analysis?.task.engine
   const taskSql = analysis?.sql?.sql
-  // `create_table` and `insert_into` are the two ways a td> task names its
+  // `create_table` and `insert_into` are the two ways a query task names its
   // destination; a task carries at most one of them.
   const operatorConfig = (analysis?.task.operatorConfig ?? analysis?.task.value) as Record<string, unknown> | undefined
   const configString = (key: string) => typeof operatorConfig?.[key] === 'string' ? operatorConfig[key] as string : undefined
@@ -129,14 +146,55 @@ export function TaskInspector({
   const writeMode: WriteMode = createTable !== undefined ? 'create_table' : insertInto !== undefined ? 'insert_into' : 'none'
   const writeTarget = createTable ?? insertInto ?? ''
 
+  const operator = analysis?.task.operator
+  const definition = operatorDefinition(operator)
+  const allFields = useMemo(
+    () => [...operatorFields(operator), ...COMMON_FIELDS_IN_FORM],
+    [operator],
+  )
+  // A field belongs in the form once the task sets it, or once the user picks
+  // it from the list; everything else stays behind the picker so a task with
+  // three settings does not show forty empty boxes.
+  const [addedKeys, setAddedKeys] = useState<string[]>([])
+  useEffect(() => { setAddedKeys([]) }, [taskId])
+
+  // create_table / insert_into have their own switch below, and the query has
+  // its own tab, so neither is repeated among the plain settings.
+  const ownSectionKeys = new Set(['create_table', 'insert_into', 'query', 'sql'])
+  const taskBody = (analysis?.task.value ?? {}) as Record<string, unknown>
+  const isSet = (key: string) =>
+    (operatorConfig && operatorConfig[key] !== undefined) || taskBody[key] !== undefined
+  const shownFields = allFields.filter((field) =>
+    !ownSectionKeys.has(field.key) && (isSet(field.key) || addedKeys.includes(field.key)))
+  const availableFields = allFields.filter((field) =>
+    !ownSectionKeys.has(field.key) && !isSet(field.key) && !addedKeys.includes(field.key))
+
+  const valueOf = (key: string) => operatorConfig?.[key] ?? taskBody[key]
+  /** What sits on the operator key itself — the method name, message, path. */
+  const operatorValue = operator ? valueOf(operator) : undefined
+  /** True when the operator key carries the query text rather than a path. */
+  const sqlRef = analysis?.task.sql
+  const inlineQueryIsTheValue = sqlRef?.kind === 'inline'
+    && sqlRef.yamlPath?.[sqlRef.yamlPath.length - 1] === operator
+
+  // Anything in the task body the form does not already account for. Showing it
+  // is the difference between "the editor matches the task" and "the editor
+  // quietly hides half the YAML".
+  const handled = useMemo(() => handledTaskKeys(operator), [operator])
+  const extraEntries = useMemo(() => {
+    const merged: Record<string, unknown> = { ...taskBody, ...(operatorConfig ?? {}) }
+    return Object.entries(merged).filter(([key]) =>
+      !handled.has(key) && !ownSectionKeys.has(key) && !key.startsWith('+'))
+  }, [taskBody, operatorConfig, handled])
+
+  const taskExport = (taskBody._export ?? undefined) as Record<string, unknown> | undefined
+
   // Drafts follow the selected task, and pick up whatever a save reparsed.
   useEffect(() => {
     setNameDraft(taskName?.replace(/^\+/, '') ?? '')
-    setDatabaseDraft(taskDatabase ?? '')
-    setEngineDraft(taskEngine ?? '')
     setSqlDraft(taskSql ?? '')
     setTargetDraft(writeTarget)
-  }, [taskId, taskName, taskDatabase, taskEngine, taskSql, writeTarget])
+  }, [taskId, taskName, taskSql, writeTarget])
 
   const inputs = analysis?.sql?.sources ?? []
   const outputs = analysis?.sql?.targets ?? []
@@ -196,7 +254,7 @@ export function TaskInspector({
           </button>
         </div>
       </div>
-      {editing && <p className="inspector-edit-banner"><Pencil size={12} /> 編集モード — 名前・Database・Engine・書き込み先は、入力後にフォーカスを外すと保存されます</p>}
+      {editing && <p className="inspector-edit-banner"><Pencil size={12} /> 編集モード — 各項目は入力後にフォーカスを外すと保存されます</p>}
 
       <div className="inspector-tabs" role="tablist" aria-label="Task details">
         <button type="button" className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>概要</button>
@@ -210,34 +268,71 @@ export function TaskInspector({
             <section className="property-section">
               <h3>タスク情報</h3>
               <dl className="property-list">
-                <div><dt>Operator</dt><dd><code>{task.operator ?? 'group'}</code></dd></div>
+                <div><dt>Operator</dt><dd>
+                  <code>{task.operator ?? 'group'}</code>
+                  {definition?.doc && (
+                    <a className="operator-doc-link" href={definition.doc} target="_blank" rel="noreferrer" title="公式ドキュメントを開く">
+                      <BookOpen size={13} />
+                    </a>
+                  )}
+                </dd></div>
                 <div><dt>Workflow</dt><dd>{task.documentPath}</dd></div>
-                <div><dt>Database</dt><dd>{editing ? (
-                  <input
-                    className="inspector-field-input"
-                    value={databaseDraft}
-                    placeholder="未指定"
-                    spellCheck={false}
-                    onChange={(event) => setDatabaseDraft(event.target.value)}
-                    onBlur={() => { if (databaseDraft.trim() !== (task.database ?? '')) onFieldsChange({ database: databaseDraft }) }}
-                    onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
-                  />
-                ) : task.database ?? '未指定'}</dd></div>
-                <div><dt>Engine</dt><dd>{editing ? (
-                  <input
-                    className="inspector-field-input"
-                    value={engineDraft}
-                    placeholder="trino / hive"
-                    list="inspector-engine-options"
-                    spellCheck={false}
-                    onChange={(event) => setEngineDraft(event.target.value)}
-                    onBlur={() => { if (engineDraft.trim() !== (task.engine ?? '')) onFieldsChange({ engine: engineDraft }) }}
-                    onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
-                  />
-                ) : task.engine ?? '継承 / 未指定'}</dd></div>
                 <div><dt>Depth</dt><dd>{task.depth}</dd></div>
               </dl>
+              {definition
+                ? <p className="operator-summary">{definition.summary}</p>
+                : task.operator && <p className="operator-summary unknown">このオペレーターの定義は未登録です。設定は下の「その他の設定」で編集できます。</p>}
             </section>
+
+            {(definition?.valueLabel || shownFields.length > 0 || (editing && availableFields.length > 0)) && (
+              <section className="property-section operator-settings-section">
+                <div className="section-heading-row">
+                  <h3>オペレーター設定</h3>
+                  <span className="operator-key-badge"><code>{task.operator}</code></span>
+                </div>
+                {definition?.valueLabel && (
+                  // The operator's own value is the message, the method name,
+                  // the query path. It is editable unless it holds the query
+                  // itself, which belongs to the SQL tab.
+                  <OperatorFieldRow
+                    field={{
+                      key: task.operator ?? '',
+                      type: inlineQueryIsTheValue ? 'tasks' : definition.valueType === 'map' || definition.valueType === 'tasks' ? 'json' : definition.valueType === 'sql' ? 'string' : definition.valueType ?? 'string',
+                      label: '値',
+                      help: inlineQueryIsTheValue ? 'このタスクはクエリを直接持っています。SQLタブで編集してください。' : definition.valueLabel,
+                    }}
+                    value={operatorValue}
+                    editing={editing}
+                    onCommit={(next) => { if (task.operator) onConfigChange({ [task.operator]: next }) }}
+                  />
+                )}
+                {shownFields.map((field) => (
+                  <OperatorFieldRow
+                    key={field.key}
+                    field={field}
+                    value={valueOf(field.key)}
+                    editing={editing}
+                    onCommit={(next) => onConfigChange({ [field.key]: next })}
+                    onRemove={() => {
+                      setAddedKeys(addedKeys.filter((key) => key !== field.key))
+                      onConfigChange({ [field.key]: undefined })
+                    }}
+                  />
+                ))}
+                {shownFields.length === 0 && !definition?.valueLabel && (
+                  <p className="inspector-empty-copy">設定されている項目はありません。</p>
+                )}
+                {editing && (
+                  <AddFieldPicker
+                    fields={availableFields}
+                    onAdd={(field) => {
+                      setAddedKeys([...addedKeys, field.key])
+                      if (field.type !== 'tasks') onConfigChange({ [field.key]: blankValueFor(field.type) })
+                    }}
+                  />
+                )}
+              </section>
+            )}
             {writesATable(task.operator, writeMode !== 'none') && (
               <section className="property-section">
                 <div className="section-heading-row">
@@ -288,6 +383,42 @@ export function TaskInspector({
                 )}
               </section>
             )}
+            {(extraEntries.length > 0 || !definition) && (
+              <section className="property-section">
+                <div className="section-heading-row">
+                  <h3>その他の設定</h3>
+                  <span className="operator-key-badge">{extraEntries.length}件</span>
+                </div>
+                {extraEntries.length === 0
+                  ? <p className="inspector-empty-copy">このタスクに他のキーはありません。</p>
+                  : extraEntries.map(([key, value]) => (
+                    <OperatorFieldRow
+                      key={key}
+                      field={{ key, type: typeof value === 'object' && value !== null ? 'json' : typeof value === 'boolean' ? 'boolean' : typeof value === 'number' ? 'number' : 'string', label: key }}
+                      value={value}
+                      editing={editing}
+                      onCommit={(next) => onConfigChange({ [key]: next })}
+                      onRemove={() => onConfigChange({ [key]: undefined })}
+                    />
+                  ))}
+                <p className="operator-field-help">定義に無いキーはそのまま表示・編集します。値の型はYAMLから推定しています。</p>
+              </section>
+            )}
+
+            <section className="property-section export-section">
+              <div className="section-heading-row">
+                <h3>_export（このタスク）</h3>
+                {taskExport && <span className="operator-key-badge">{Object.keys(taskExport).length}件</span>}
+              </div>
+              <ExportEditor
+                variables={taskExport}
+                editing={editing}
+                onSave={onExportChange}
+                scopeHelp="このタスクと、その配下の子タスクに渡る変数です。"
+                resolved={resolvedVariables}
+              />
+            </section>
+
             <section className="property-section">
               <h3>構造</h3>
               <div className="summary-chips">

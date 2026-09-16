@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import { parseDigdagDocument } from './digdag'
-import { renameDigdagTask, setDigdagTaskFields, setDigdagTaskQuery } from './task-edit'
+import {
+  renameDigdagTask,
+  setDigdagTaskConfig,
+  setDigdagTaskExport,
+  setDigdagTaskFields,
+  setDigdagTaskQuery,
+  setDigdagWorkflowExport,
+} from './task-edit'
 
 const WORKFLOW = `
 _export:
@@ -88,5 +95,67 @@ describe('setDigdagTaskQuery', () => {
 
   test('leaves a file-backed query to the file itself', () => {
     expect(() => setDigdagTaskQuery(parse(), idOf('+extract'), 'select 1')).toThrow(/file/i)
+  })
+})
+
+describe('setDigdagTaskConfig', () => {
+  test('writes values with their YAML type, not as strings', () => {
+    const text = setDigdagTaskConfig(parse(), idOf('+extract'), {
+      priority: 2,
+      preview: true,
+      result_settings: { bucket: 'reports' },
+    }).after.text
+    expect(text).toMatch(/priority: 2\b/)
+    expect(text).toMatch(/preview: true\b/)
+    expect(text).toContain('bucket: reports')
+    expect(text).not.toContain('"2"')
+  })
+
+  test('undefined removes the key', () => {
+    const text = setDigdagTaskConfig(parse(), idOf('+extract'), { engine: undefined }).after.text
+    expect(text).not.toContain('engine: presto')
+    expect(text).toContain('create_table: events')
+  })
+
+  test('reaches an operator that lives under _do', () => {
+    const text = setDigdagTaskConfig(parse(), idOf('+run'), { database: 'staging' }).after.text
+    expect(text).toContain('database: staging')
+  })
+})
+
+describe('setDigdagTaskExport', () => {
+  test('adds _export at the top of the task, not after its operator', () => {
+    const text = setDigdagTaskExport(parse(), idOf('+extract'), { region: 'jp', retries: 3 }).after.text
+    const task = text.slice(text.indexOf('+extract:'))
+    expect(task.indexOf('_export:')).toBeLessThan(task.indexOf('td>:'))
+    expect(task).toMatch(/retries: 3\b/)
+  })
+
+  test('an empty block removes _export', () => {
+    const withExport = setDigdagTaskExport(parse(), idOf('+extract'), { region: 'jp' })
+    const cleared = setDigdagTaskExport(withExport.document, idOf('+extract'), {})
+    expect(cleared.after.text).not.toContain('region: jp')
+  })
+
+  test('the task keeps reading its own variables back', () => {
+    const result = setDigdagTaskExport(parse(), idOf('+extract'), { region: 'jp' })
+    const task = result.document.tasks.find((item) => item.name === '+extract')
+    expect(result.document.taskVariables[task?.id ?? '']?.[0]?.region).toBe('jp')
+  })
+})
+
+describe('setDigdagWorkflowExport', () => {
+  test('replaces the root block and leaves the tasks alone', () => {
+    const text = setDigdagWorkflowExport(parse(), { td: { database: 'td_other' }, env: 'prod' }).after.text
+    expect(text).toContain('database: td_other')
+    expect(text).toContain('env: prod')
+    expect(text).toContain('+extract:')
+    expect(text.indexOf('_export:')).toBeLessThan(text.indexOf('+extract:'))
+  })
+
+  test('an empty block removes the root _export', () => {
+    const text = setDigdagWorkflowExport(parse(), {}).after.text
+    expect(text).not.toContain('_export:')
+    expect(text).toContain('+extract:')
   })
 })

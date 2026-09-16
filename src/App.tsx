@@ -58,6 +58,7 @@ import {
   Sparkles,
   TableProperties,
   Trash2,
+  Variable,
   Undo2,
   Upload,
   X,
@@ -67,7 +68,10 @@ import { jsPDF } from 'jspdf'
 import {
   addChildTask,
   renameDigdagTask,
+  setDigdagTaskConfig,
+  setDigdagTaskExport,
   setDigdagTaskFields,
+  setDigdagWorkflowExport,
   setDigdagTaskQuery,
   addSiblingTask,
   analyzeWorkflow,
@@ -90,6 +94,7 @@ import type {
 import { TaskInspector } from './components/TaskInspector'
 import { WorkflowGraph } from './components/WorkflowGraph'
 import { ReleaseLogDialog } from './components/ReleaseLogDialog'
+import { WorkflowExportDialog } from './components/WorkflowExportDialog'
 import { RELEASE_LOG } from './releaseLog'
 import { GraphFilterBar, UNSPECIFIED } from './components/GraphFilterBar'
 import type { GraphFilterGroup, GraphFilterSelection } from './components/GraphFilterBar'
@@ -1039,6 +1044,7 @@ function App() {
   const [graphQuery, setGraphQuery] = useState('')
   const [graphFilters, setGraphFilters] = useState<GraphFilterSelection>({})
   const [releaseLogOpen, setReleaseLogOpen] = useState(false)
+  const [workflowExportOpen, setWorkflowExportOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [lineageSummaryOpen, setLineageSummaryOpen] = useState(false)
@@ -1078,6 +1084,11 @@ function App() {
     ? selectedTaskId
     : selectedDocument?.tasks[0]?.id
   const selectedTaskAnalysis = analysis?.tasks.find((item) => item.task.id === effectiveSelectedTaskId)
+  // The scope a task actually runs under. A task inside a `for_each>` has one
+  // per iteration; the first is enough to show what `${...}` expands to.
+  const selectedTaskVariables = effectiveSelectedTaskId && selectedDocument
+    ? selectedDocument.taskVariables[effectiveSelectedTaskId]?.[0]
+    : undefined
   const diagnostics = analysis?.diagnostics ?? []
 
   useEffect(() => {
@@ -1294,6 +1305,58 @@ function App() {
       setSelectedTaskId(target.task.id)
     } catch (error) {
       setToast({ type: 'error', message: error instanceof Error ? error.message : '設定を更新できませんでした' })
+    }
+  }
+
+  /** Writes one or more operator settings, of whatever YAML type they are. */
+  const updateTaskConfig = (values: Record<string, unknown>) => {
+    const target = selectedTaskDocument()
+    if (!target) return
+    try {
+      const result = setDigdagTaskConfig(target.document, target.task.id, values)
+      const keys = Object.keys(values)
+      const removed = keys.filter((key) => values[key] === undefined)
+      const label = keys.join(' / ')
+      applyDocumentText(
+        target.document.path,
+        result.after.text,
+        removed.length === keys.length ? `${target.task.name} の ${label} を削除しました` : `${target.task.name} の ${label} を更新しました`,
+      )
+      setSelectedTaskId(target.task.id)
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : '設定を更新できませんでした' })
+    }
+  }
+
+  const updateTaskExport = (variables: Record<string, unknown>) => {
+    const target = selectedTaskDocument()
+    if (!target) return
+    try {
+      const result = setDigdagTaskExport(target.document, target.task.id, variables)
+      const count = Object.keys(variables).length
+      applyDocumentText(
+        target.document.path,
+        result.after.text,
+        count === 0 ? `${target.task.name} の _export を削除しました` : `${target.task.name} の _export を更新しました（${count}件）`,
+      )
+      setSelectedTaskId(target.task.id)
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : '_export を更新できませんでした' })
+    }
+  }
+
+  const updateWorkflowExport = (variables: Record<string, unknown>) => {
+    if (!selectedDocument) return
+    try {
+      const result = setDigdagWorkflowExport(selectedDocument, variables)
+      const count = Object.keys(variables).length
+      applyDocumentText(
+        selectedDocument.path,
+        result.after.text,
+        count === 0 ? 'ワークフローの _export を削除しました' : `ワークフローの _export を更新しました（${count}件）`,
+      )
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : '_export を更新できませんでした' })
     }
   }
 
@@ -1579,6 +1642,11 @@ function App() {
             {(view === 'pipeline' || view === 'combined' || view === 'lineage') && documents.length > 0 && (
               <label className="workflow-select"><GitFork size={14} /><select value={selectedDocument?.path} onChange={(event) => { setSelectedWorkflowPath(event.target.value); setSelectedTaskId(undefined) }}>{documents.map((document) => <option key={document.path} value={document.path}>{document.path}</option>)}</select><ChevronDown size={13} /></label>
             )}
+            {(view === 'pipeline' || view === 'combined') && selectedDocument && (
+              <button className="workflow-export-button" type="button" title="ワークフロー全体の _export を編集" onClick={() => setWorkflowExportOpen(true)}>
+                <Variable size={14} /> 変数
+              </button>
+            )}
           </div>
           <div className="header-actions">
             <div className="history-actions"><button className="icon-button" type="button" title="Undo" disabled={undoStack.length === 0} onClick={undo}><Undo2 size={17} /></button><button className="icon-button" type="button" title="Redo" disabled={redoStack.length === 0} onClick={redo}><Redo2 size={17} /></button></div>
@@ -1639,7 +1707,7 @@ function App() {
               </div>
               <div className={`graph-and-inspector ${(view === 'combined' || view === 'lineage') && !lineageSummaryOpen ? 'graph-full-width' : ''}`}>
                 <WorkflowGraph mode={view === 'pipeline' ? 'pipeline' : view === 'combined' ? 'combined' : 'lineage'} analysis={analysis} document={selectedDocument} selectedTaskId={effectiveSelectedTaskId} onSelectTask={setSelectedTaskId} onDropOperator={addOperator} canvasRef={graphRef} searchQuery={graphQuery} filterGroups={graphFilterGroups} filterSelection={activeGraphFilters} />
-                {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} inferredTables={analysis.inferredTables} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} onParallelChange={updateParallelSettings} onRename={renameTask} onFieldsChange={updateTaskFields} onSqlSave={updateTaskSql} />}
+                {view === 'pipeline' && <TaskInspector analysis={selectedTaskAnalysis} schemas={analysis.schemas} inferredTables={analysis.inferredTables} onDelete={() => effectiveSelectedTaskId && deleteTaskById(effectiveSelectedTaskId)} onOpenFile={openFile} onParallelChange={updateParallelSettings} onRename={renameTask} onFieldsChange={updateTaskFields} onConfigChange={updateTaskConfig} onExportChange={updateTaskExport} resolvedVariables={selectedTaskVariables} onSqlSave={updateTaskSql} />}
                 {(view === 'combined' || view === 'lineage') && lineageSummaryOpen && (
                   <aside className="lineage-summary-panel">
                     <div className="lineage-summary-header"><Database size={18} /><div><p>Lineage summary</p><h2>{analysis.tableLineage.length} connections</h2></div></div>
@@ -1659,6 +1727,9 @@ function App() {
       {toast && <div className={`toast toast-${toast.type}`}>{toast.type === 'success' ? <Check size={17} /> : toast.type === 'error' ? <AlertTriangle size={17} /> : <Info size={17} />}<span>{toast.message}</span></div>}
       {loading && <div className="loading-overlay"><LoaderCircle className="spin" size={28} /><strong>ZIPを端末内で解析中...</strong></div>}
       {releaseLogOpen && <ReleaseLogDialog onClose={() => setReleaseLogOpen(false)} />}
+      {workflowExportOpen && selectedDocument && (
+        <WorkflowExportDialog document={selectedDocument} onSave={updateWorkflowExport} onClose={() => setWorkflowExportOpen(false)} />
+      )}
     </div>
   )
 }

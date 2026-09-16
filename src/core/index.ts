@@ -24,7 +24,22 @@ export {
 } from './schema'
 export { analyzeWorkflow, buildWorkflowLineage } from './lineage'
 export { addChildTask, parallelSettingsForTask, setTaskParallel } from './parallel'
-export { renameDigdagTask, setDigdagTaskFields, setDigdagTaskQuery } from './task-edit'
+export {
+  renameDigdagTask,
+  setDigdagTaskConfig,
+  setDigdagTaskExport,
+  setDigdagTaskFields,
+  setDigdagTaskQuery,
+  setDigdagWorkflowExport,
+} from './task-edit'
+export {
+  COMMON_TASK_FIELDS,
+  handledTaskKeys,
+  knownOperators,
+  operatorDefinition,
+  operatorFields,
+} from './operator-schema'
+export type { OperatorDefinition, OperatorField, OperatorFieldType } from './operator-schema'
 export { inferredTableFor } from './lineage'
 export {
   addSibling,

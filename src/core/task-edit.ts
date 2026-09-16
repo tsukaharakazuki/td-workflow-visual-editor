@@ -98,6 +98,76 @@ export function setDigdagTaskFields(
   return resultFor(document, edited)
 }
 
+/**
+ * Sets or clears settings of any YAML type — numbers, booleans, lists, maps.
+ * `undefined` removes the key, which is how a field goes back to its default.
+ */
+export function setDigdagTaskConfig(
+  document: DigdagDocument,
+  taskId: string,
+  values: Readonly<Record<string, unknown>>,
+): DigdagEditResult {
+  const task = taskOrThrow(document, taskId)
+  const edited = document.document.clone()
+  const body = mapAt(edited, operatorBodyPath(task))
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) body.delete(key)
+    else body.set(key, edited.createNode(value))
+  }
+  return resultFor(document, edited)
+}
+
+/**
+ * Writes `_export` where a person would have typed it: at the top of the block,
+ * below `timezone` if the file sets one. `map.set` would append it after the
+ * tasks instead, which parses the same but reads badly in a diff.
+ */
+function setExportBlock(document: Document, map: YAMLMap, variables: Readonly<Record<string, unknown>>): void {
+  if (Object.keys(variables).length === 0) {
+    map.delete('_export')
+    return
+  }
+  const node = document.createNode(variables)
+  const existing = map.items.findIndex((pair) => pairKey(pair) === '_export')
+  if (existing >= 0) {
+    map.items[existing].value = node
+    return
+  }
+  // `set` appends, and builds a properly constructed Pair for us; moving that
+  // pair is safer than hand-rolling one.
+  map.set('_export', node)
+  const appended = map.items.pop()
+  if (!appended) return
+  const afterTimezone = map.items.findIndex((pair) => pairKey(pair) === 'timezone')
+  map.items.splice(afterTimezone + 1, 0, appended)
+}
+
+/**
+ * Replaces a task's `_export` block. Digdag scopes `_export` to the task and
+ * everything under it, so it lives on the task map rather than on the operator
+ * body, which may sit one level deeper inside a `_do`.
+ */
+export function setDigdagTaskExport(
+  document: DigdagDocument,
+  taskId: string,
+  variables: Readonly<Record<string, unknown>>,
+): DigdagEditResult {
+  const task = taskOrThrow(document, taskId)
+  const edited = document.document.clone()
+  setExportBlock(edited, mapAt(edited, task.yamlPath), variables)
+  return resultFor(document, edited)
+}
+
+/** Replaces the workflow-level `_export` block at the top of the .dig file. */
+export function setDigdagWorkflowExport(
+  document: DigdagDocument,
+  variables: Readonly<Record<string, unknown>>,
+): DigdagEditResult {
+  const edited = document.document.clone()
+  setExportBlock(edited, mapAt(edited, []), variables)
+  return resultFor(document, edited)
+}
+
 function asBlockScalar(node: Scalar, sql: string): void {
   node.value = sql
   node.type = sql.includes('\n') ? Scalar.BLOCK_LITERAL : Scalar.PLAIN

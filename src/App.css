@@ -4065,3 +4065,250 @@ button.sidebar-privacy:hover .sidebar-privacy-hint {
   background: #e8f1fb;
   border-radius: 999px;
 }
+
+/* --- Operator-aware task settings ------------------------------------- */
+
+.operator-summary {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.operator-summary.unknown {
+  color: #9a6b2f;
+}
+
+.operator-doc-link {
+  display: inline-flex;
+  margin-left: 6px;
+  color: var(--primary-1);
+  vertical-align: middle;
+}
+
+.operator-doc-link:hover {
+  color: var(--primary-2);
+}
+
+.operator-key-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-tint);
+  color: var(--primary-1);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.operator-key-badge code {
+  font-size: 10px;
+}
+
+.operator-field {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.operator-field:first-of-type {
+  border-top: 0;
+}
+
+.operator-field-head {
+  display: flex;
+  margin-bottom: 5px;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.operator-field-head label {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.operator-field-head strong {
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.operator-field-head code {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
+.operator-field-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #fdeeee;
+  color: #b4453f;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.operator-field-value {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.operator-field-help {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+.operator-field-error {
+  display: block;
+  margin-top: 4px;
+  color: #b4453f;
+  font-size: 10.5px;
+}
+
+.operator-field-readonly {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.operator-field-textarea {
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: #fff;
+  color: #33465c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.operator-field-textarea:focus {
+  border-color: #4f8fc4;
+  outline: 2px solid rgba(79, 143, 196, 0.16);
+}
+
+.operator-field-textarea.is-invalid {
+  border-color: #d88a86;
+}
+
+.operator-field-boolean {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.operator-add-field {
+  display: flex;
+  margin-top: 14px;
+  align-items: center;
+  gap: 8px;
+}
+
+.operator-add-field select {
+  min-width: 0;
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: #fff;
+  color: #33465c;
+  font-family: inherit;
+  font-size: 11.5px;
+}
+
+/* --- _export editing --------------------------------------------------- */
+
+.export-row {
+  display: flex;
+  margin-bottom: 7px;
+  align-items: center;
+  gap: 6px;
+}
+
+.export-row .export-key {
+  flex: 0 0 38%;
+}
+
+.export-row .export-value {
+  min-width: 0;
+  flex: 1;
+}
+
+.export-help {
+  display: flex;
+  margin: 10px 0 0;
+  align-items: flex-start;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+.export-resolved {
+  margin-top: 12px;
+  font-size: 11px;
+}
+
+.export-resolved summary {
+  color: var(--primary-1);
+  cursor: pointer;
+}
+
+.export-resolved .property-list {
+  margin-top: 8px;
+}
+
+.workflow-export-button {
+  display: inline-flex;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: #fff;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.workflow-export-button:hover {
+  border-color: var(--primary-2);
+  color: var(--primary-1);
+}
+
+.workflow-export-panel {
+  max-width: 640px;
+}
+
+.workflow-export-panel .property-section {
+  padding: 0 0 18px;
+}
+
+.icon-button.subtle {
+  padding: 2px;
+  opacity: 0.55;
+}
+
+.icon-button.subtle:hover {
+  opacity: 1;
+}
+
+.operator-field .inspector-field-input,
+.export-editor .inspector-field-input {
+  text-align: left;
+}
