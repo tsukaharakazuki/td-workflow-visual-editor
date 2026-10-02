@@ -13,6 +13,16 @@ export interface ReleaseLogEntry {
  */
 export const RELEASE_LOG: readonly ReleaseLogEntry[] = [
   {
+    at: '2026-10-02 14:40:00',
+    summary: 'トップページに Import Guide を追加し、Treasure AI Studio 用プロンプトを修正',
+    details: [
+      'ZIPを読み込む前のトップページから、ZIPの作り方・インポート方法（Workflow Catalog / Import Guide）を参照できるように',
+      'ヘッダーの「Import Guide」ボタンと、読み込みカードの「ZIPの作り方・インポート方法」からガイドへ移動',
+      'Treasure AI Studio 用プロンプトに GitHub リポジトリの URL を明記し、Studio が docs/TREASURE_AI_STUDIO.md を参照できるように',
+      'ガイドに詳細ドキュメント・Schema形式へのリンクとサンプルZIPのダウンロードを追加',
+    ],
+  },
+  {
     at: '2026-09-16 10:50:03',
     summary: 'Task Inspector をオペレーターごとの設定画面に変更し、_export の編集を追加',
     details: [

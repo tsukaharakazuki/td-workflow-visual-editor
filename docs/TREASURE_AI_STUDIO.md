@@ -97,6 +97,20 @@ Workflow Visual Editor は、ZIP に入っている `schemas/workflow-inspector.
 - 認証情報を Studio のローカル実行環境の外へ出さないでください。
 ```
 
+## 画面からコピーできる短縮版プロンプト
+
+Visual Editor のトップページと Import Guide の「Studio用プロンプトをコピー」でコピーされるのは次の短縮版です。Studio にこのリポジトリを読ませ、上の詳細手順と [SCHEMA_FORMAT.md](./SCHEMA_FORMAT.md) に従わせます。
+
+```text
+GitHubリポジトリ（https://github.com/tsukaharakazuki/td-workflow-visual-editor）の docs/TREASURE_AI_STUDIO.md を読み、Treasure Workflow Visual EditorにアップロードするZIPを作成してください。
+1. 対象のWorkflow Project名を確認してください。
+2. tdx wf pull でWorkflowを読み取り専用取得してください。
+3. td> SQLのFROM/JOINに現れるソーステーブルを抽出し、tdx describe <database.table> --json でスキーマだけを取得してください。
+4. docs/SCHEMA_FORMAT.md に従って schemas/workflow-inspector.schema.json を作成してください。
+5. Workflow全ファイルとschema sidecarをZIP化して返してください。
+APIキー、.env、secret、ログ、クエリ結果、行データは絶対にZIPへ含めないでください。wf run / push は実行しないでください。
+```
+
 ## 受け取った ZIP の確認ポイント
 
 - `schemas/workflow-inspector.schema.json` が入っているか。

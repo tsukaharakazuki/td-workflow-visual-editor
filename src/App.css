@@ -114,9 +114,10 @@ button:disabled {
 /* Import */
 .import-screen {
   position: relative;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
   overflow: auto;
+  scroll-behavior: smooth;
   color: var(--ink);
   background:
     linear-gradient(115deg, rgba(255, 255, 255, 0.96) 0%, rgba(252, 252, 255, 0.94) 46%, rgba(244, 244, 255, 0.82) 100%),
@@ -411,11 +412,83 @@ button:disabled {
   line-height: 1.45;
 }
 
+.import-guide-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  margin-right: 10px;
+  margin-left: auto;
+  color: #4f45b9;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(201, 196, 240, 0.9);
+  border-radius: 999px;
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+}
+
+.import-guide-link:hover {
+  background: #f2f1ff;
+}
+
+.import-guide-link + .privacy-pill {
+  margin-left: 0;
+}
+
+.import-guide-section {
+  position: relative;
+  z-index: 1;
+  max-width: 1108px;
+  padding: 8px 34px 56px;
+  margin: 0 auto;
+  scroll-margin-top: 24px;
+}
+
+.import-guide-section .content-page-header {
+  max-width: 1040px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.guide-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  max-width: 1040px;
+  margin: 14px auto 0;
+  color: #8e8b98;
+  font-size: 9px;
+}
+
+.guide-links a {
+  color: #5a50d6;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.guide-links a:hover {
+  text-decoration: underline;
+}
+
+.guide-links i {
+  width: 1px;
+  height: 11px;
+  background: #d8d7e2;
+}
+
+.guide-grid p .inline-code {
+  display: inline;
+  padding: 1px 4px;
+  margin: 0;
+  white-space: normal;
+  word-break: break-all;
+}
+
 .import-footer {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  position: relative;
   z-index: 1;
   padding: 16px 24px;
   color: #9a97a5;
@@ -3467,6 +3540,8 @@ button:disabled {
   .import-header > span,
   .import-header > strong { display: none; }
   .import-layout { min-height: auto; padding: 42px 20px 64px; }
+  .import-guide-section { padding: 8px 16px 40px; }
+  .import-guide-link { padding: 7px 9px; }
   .import-intro h1 { font-size: 38px; }
   .feature-list { width: 100%; }
   .drop-card { min-height: 380px; padding: 34px 20px 24px; }
