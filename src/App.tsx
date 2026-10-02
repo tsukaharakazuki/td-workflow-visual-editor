@@ -187,7 +187,9 @@ function operatorCards(items: readonly OperatorPaletteItem[], onAddOperator: (op
   })
 }
 
-const STUDIO_PROMPT = `このGitHubリポジトリの docs/TREASURE_AI_STUDIO.md を読み、Treasure Workflow Visual EditorにアップロードするZIPを作成してください。
+const REPOSITORY_URL = 'https://github.com/tsukaharakazuki/td-workflow-visual-editor'
+
+const STUDIO_PROMPT = `GitHubリポジトリ（${REPOSITORY_URL}）の docs/TREASURE_AI_STUDIO.md を読み、Treasure Workflow Visual EditorにアップロードするZIPを作成してください。
 1. 対象のWorkflow Project名を確認してください。
 2. tdx wf pull でWorkflowを読み取り専用取得してください。
 3. td> SQLのFROM/JOINに現れるソーステーブルを抽出し、tdx describe <database.table> --json でスキーマだけを取得してください。
@@ -592,12 +594,15 @@ function prepareGraphForExport(container: HTMLElement): () => void {
   }
 }
 
-function ImportScreen({ onFile, onSample, loading }: {
+function ImportScreen({ onFile, onSample, onCopyPrompt, loading }: {
   onFile: (file: File) => void
   onSample: () => void
+  onCopyPrompt: () => void
   loading: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const guideRef = useRef<HTMLElement>(null)
+  const showGuide = () => guideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   const [dragging, setDragging] = useState(false)
 
   const handleDrop = (event: DragEvent) => {
@@ -615,6 +620,7 @@ function ImportScreen({ onFile, onSample, loading }: {
         <img src={`${import.meta.env.BASE_URL}brand/treasure-ai-master-logo.svg`} alt="Treasure AI" />
         <span />
         <strong>Workflow Visual Editor</strong>
+        <button className="import-guide-link" type="button" onClick={showGuide}><BookOpen size={14} /> Import Guide</button>
         <div className="privacy-pill"><LockKeyhole size={14} /> Local only</div>
       </header>
       <section className="import-layout">
@@ -645,6 +651,9 @@ function ImportScreen({ onFile, onSample, loading }: {
             <button className="text-button" type="button" onClick={onSample} disabled={loading}>
               サンプルプロジェクトを見る <ChevronRight size={15} />
             </button>
+            <button className="text-button" type="button" onClick={showGuide}>
+              <BookOpen size={14} /> ZIPの作り方・インポート方法
+            </button>
             <input
               ref={inputRef}
               className="visually-hidden"
@@ -662,6 +671,12 @@ function ImportScreen({ onFile, onSample, loading }: {
             <div><strong>データは外部に送信されません</strong><p>アップロード、API通信、サーバー保存は行いません。</p></div>
           </div>
         </div>
+      </section>
+      <section className="import-guide-section" ref={guideRef} aria-labelledby="import-guide-title">
+        <header className="content-page-header">
+          <div><span className="page-icon"><BookOpen size={20} /></span><div><p>Workflow Catalog / Import Guide</p><h2 id="import-guide-title">ZIPの作り方とインポート方法</h2></div></div>
+        </header>
+        <ImportGuideContent onCopy={onCopyPrompt} />
       </section>
       <footer className="import-footer">Treasure AI Brand Guidelines 2026に準拠したローカルファーストツール</footer>
     </main>
@@ -1012,23 +1027,39 @@ function DiagnosticsView({ diagnostics }: { diagnostics: Diagnostic[] }) {
   )
 }
 
+/** ZIPの作り方とStudio用プロンプト。トップページとImport Guide画面で共用。 */
+function ImportGuideContent({ onCopy }: { onCopy: () => void }) {
+  return (
+    <>
+      <div className="guide-hero">
+        <div><span><Sparkles size={19} /></span><h3>Treasure AI Studioから取得</h3><p>Studio内の認証済みtdxだけを使い、Workflowとソーステーブルのスキーマを含むZIPを作ります。下のプロンプトをコピーしてStudioに貼り付けてください。</p></div>
+        <button className="primary-button" type="button" onClick={onCopy}><Copy size={16} /> Studio用プロンプトをコピー</button>
+      </div>
+      <div className="guide-grid">
+        <article><span>01</span><h3>Workflowを取得</h3><code>tdx wf pull &lt;project&gt;</code><p>またはTD ToolbeltのWorkflow画面からProject ZIPをダウンロードします。取得は読み取り専用で、run / push は行いません。</p></article>
+        <article><span>02</span><h3>Schemaを追加（推奨）</h3><code>tdx describe db.table --json</code><p>ソーステーブルの名前・型だけを <code className="inline-code">schemas/workflow-inspector.schema.json</code> にまとめます。行データは含めません。</p></article>
+        <article><span>03</span><h3>ZIP化してインポート</h3><code>zip -r workflow-project.zip . -x &apos;.env*&apos; &apos;keys/*&apos; &apos;logs/*&apos;</code><p>プロジェクトのルートでZIP化し、この画面へドロップします。読み込んだ内容は端末外へ送信されません。</p></article>
+      </div>
+      <div className="security-note"><LockKeyhole size={20} /><div><strong>ZIPへ含めないもの</strong><p>APIキー、.env、secret値、秘密鍵、Webhook URL、ログ、SQL実行結果、顧客の行データ。${'{secret:KEY}'} のような参照文字列は値を含まないため保持できます。</p></div></div>
+      <section className="prompt-preview"><div><h3>Treasure AI Studio Prompt</h3><button type="button" onClick={onCopy}><Copy size={14} /> Copy</button></div><pre>{STUDIO_PROMPT}</pre></section>
+      <p className="guide-links">
+        詳しい手順: <a href={`${REPOSITORY_URL}/blob/main/docs/TREASURE_AI_STUDIO.md`} target="_blank" rel="noreferrer">TREASURE_AI_STUDIO.md</a>
+        <i />
+        Schema形式: <a href={`${REPOSITORY_URL}/blob/main/docs/SCHEMA_FORMAT.md`} target="_blank" rel="noreferrer">SCHEMA_FORMAT.md</a>
+        <i />
+        <a href={`${import.meta.env.BASE_URL}examples/workflow-inspector-sample.zip`} download>サンプルZIPをダウンロード</a>
+      </p>
+    </>
+  )
+}
+
 function GuideView({ onCopy }: { onCopy: () => void }) {
   return (
     <div className="content-scroll guide-view">
       <header className="content-page-header">
         <div><span className="page-icon"><BookOpen size={20} /></span><div><p>Secure handoff</p><h2>Import Guide</h2></div></div>
       </header>
-      <div className="guide-hero">
-        <div><span><Sparkles size={19} /></span><h3>Treasure AI Studioから取得</h3><p>Studio内の認証済みtdxだけを使い、Workflowとソーステーブルのスキーマを含むZIPを作ります。</p></div>
-        <button className="primary-button" type="button" onClick={onCopy}><Copy size={16} /> Studio用プロンプトをコピー</button>
-      </div>
-      <div className="guide-grid">
-        <article><span>01</span><h3>Workflowを取得</h3><code>tdx wf pull &lt;project&gt;</code><p>またはTD ToolbeltのWorkflow画面からProject ZIPをダウンロードします。</p></article>
-        <article><span>02</span><h3>Schemaを追加（推奨）</h3><code>tdx describe db.table --json</code><p>ソーステーブルの名前・型だけをcanonical sidecarへまとめます。行データは含めません。</p></article>
-        <article><span>03</span><h3>ブラウザで解析</h3><code>workflow-project.zip</code><p>この画面へドロップします。読み込んだ内容は端末外へ送信されません。</p></article>
-      </div>
-      <div className="security-note"><LockKeyhole size={20} /><div><strong>ZIPへ含めないもの</strong><p>APIキー、.env、secret値、秘密鍵、Webhook URL、ログ、SQL実行結果、顧客の行データ。${'{secret:KEY}'} のような参照文字列は値を含まないため保持できます。</p></div></div>
-      <section className="prompt-preview"><div><h3>Treasure AI Studio Prompt</h3><button type="button" onClick={onCopy}><Copy size={14} /> Copy</button></div><pre>{STUDIO_PROMPT}</pre></section>
+      <ImportGuideContent onCopy={onCopy} />
     </div>
   )
 }
@@ -1598,7 +1629,7 @@ function App() {
   if (!archive || !analysis) {
     return (
       <>
-        <ImportScreen onFile={(file) => loadZip(file, file.name)} onSample={loadSample} loading={loading} />
+        <ImportScreen onFile={(file) => loadZip(file, file.name)} onSample={loadSample} onCopyPrompt={copyStudioPrompt} loading={loading} />
         {toast && <div className={`toast toast-${toast.type}`}>{toast.type === 'success' ? <Check size={17} /> : toast.type === 'error' ? <AlertTriangle size={17} /> : <Info size={17} />}<span>{toast.message}</span></div>}
       </>
     )
