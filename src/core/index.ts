@@ -50,3 +50,5 @@ export {
   reorderSiblingTasks,
   reorderTasks,
 } from './edit'
+export { resolveProjectPath, taskExecutionTarget } from './task-target'
+export type { TaskExecutionTarget } from './task-target'

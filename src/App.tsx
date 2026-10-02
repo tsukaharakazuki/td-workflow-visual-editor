@@ -81,6 +81,7 @@ import {
   reorderSiblingTasks,
   setTaskParallel,
   updateWorkflowFileText,
+  taskExecutionTarget,
 } from './core'
 import type {
   Diagnostic,
@@ -278,6 +279,7 @@ interface GraphHtmlTaskRow {
   operator: string
   depth: number
   parent: string
+  target: string
   workflow: string
   database: string
 }
@@ -316,8 +318,8 @@ function buildStandaloneGraphHtml({ projectName, viewLabel, svgMarkup, taskRows,
     </section>`
 
   const taskTable = taskRows
-    ? table('タスク一覧', ['タスク', 'オペレーター', '階層', '親タスク', 'ワークフロー', 'データベース'],
-      taskRows.map((row) => [row.name, row.operator, String(row.depth), row.parent, row.workflow, row.database]))
+    ? table('タスク一覧', ['タスク', 'オペレーター', '実行ファイル', '階層', '親タスク', 'ワークフロー', 'データベース'],
+      taskRows.map((row) => [row.name, row.operator, row.target, String(row.depth), row.parent, row.workflow, row.database]))
     : ''
   const lineageTable = lineageRows
     ? table('テーブルリネージ', ['入力テーブル', '出力テーブル', 'タスク', '確度'],
@@ -1584,6 +1586,7 @@ function App() {
       operator: task.operator === '_parallel' ? 'Parallel group' : task.operator ?? 'Group',
       depth: task.depth,
       parent: task.parentId ? byId.get(task.parentId)?.name.replace(/^\+/, '') ?? '' : '',
+      target: taskExecutionTarget(task)?.label ?? '',
       workflow: task.documentPath,
       database: task.database ?? '',
     }))

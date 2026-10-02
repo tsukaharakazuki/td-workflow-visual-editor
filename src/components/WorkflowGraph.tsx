@@ -13,8 +13,9 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react'
-import { ArrowDownToLine, Braces, ChevronDown, Database, EllipsisVertical, FolderTree, GitBranch, GitFork, Layers3, Link2, MessageSquare, Network, Repeat2, Search, Table2 } from 'lucide-react'
-import { inferredTableFor, parallelSettingsForTask } from '../core'
+import { ArrowDownToLine, Braces, ChevronDown, Code2, Database, EllipsisVertical, FileCode2, FolderTree, GitBranch, GitFork, Layers3, Link2, MessageSquare, Network, Repeat2, Search, SquareTerminal, Table2 } from 'lucide-react'
+import { inferredTableFor, parallelSettingsForTask, taskExecutionTarget } from '../core'
+import type { TaskExecutionTarget } from '../core'
 import { passesGraphFilters, UNSPECIFIED } from './GraphFilterBar'
 import type { GraphFilterGroup, GraphFilterSelection } from './GraphFilterBar'
 import type {
@@ -141,7 +142,16 @@ function OperatorIcon({ operator }: { operator?: string }) {
   return <Braces size={16} />
 }
 
+function TargetIcon({ kind }: { kind: TaskExecutionTarget['kind'] }) {
+  if (kind === 'workflow') return <Layers3 size={10} />
+  if (kind === 'command') return <SquareTerminal size={10} />
+  if (kind === 'method') return <Braces size={10} />
+  if (kind === 'inline') return <Code2 size={10} />
+  return <FileCode2 size={10} />
+}
+
 function taskLabel(task: DigdagTaskNode, childMode?: 'parallel' | 'sequential') {
+  const target = taskExecutionTarget(task)
   return (
     <div className="graph-task-label">
       <div className="graph-task-header">
@@ -151,6 +161,12 @@ function taskLabel(task: DigdagTaskNode, childMode?: 'parallel' | 'sequential') 
         <span className="graph-task-copy">
           <span className="graph-entity-kicker"><small>Workflow</small><i>·</i><small>Task</small></span>
           <strong>{task.name.replace(/^\+/, '')}</strong>
+          {target && (
+            <span className={`graph-task-target target-${target.kind}`} title={target.raw === target.label ? target.label : `${target.label}（${target.raw}）`}>
+              <TargetIcon kind={target.kind} />
+              <em>{target.label}</em>
+            </span>
+          )}
         </span>
         <EllipsisVertical size={15} className="graph-entity-menu" />
       </div>
@@ -486,7 +502,7 @@ function taskElements(
     type: 'anchored',
     position: { x: 0, y: 0 },
     data: { label: taskLabel(task, childMode(task)) },
-    className: `workflow-node tone-${operatorTone(task.operator)}${selectedTaskId === task.id ? ' is-selected' : ''}${nodeClass(`${task.name} ${operatorLabel(task)} ${task.documentPath} ${task.database ?? ''}`, searchQuery, filters, 'task', taskFilterValues(task))}`,
+    className: `workflow-node tone-${operatorTone(task.operator)}${selectedTaskId === task.id ? ' is-selected' : ''}${nodeClass(`${task.name} ${operatorLabel(task)} ${task.documentPath} ${taskExecutionTarget(task)?.label ?? ''} ${task.database ?? ''}`, searchQuery, filters, 'task', taskFilterValues(task))}`,
     style: { width: NODE_WIDTH, minHeight: NODE_HEIGHT },
   }))
   const edgeKeys = new Set<string>()

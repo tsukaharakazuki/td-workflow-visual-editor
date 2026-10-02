@@ -13,6 +13,16 @@ export interface ReleaseLogEntry {
  */
 export const RELEASE_LOG: readonly ReleaseLogEntry[] = [
   {
+    at: '2026-10-02 15:30:00',
+    summary: 'タスクカードに実行されるファイル名を表示',
+    details: [
+      'td> の .sql、call> の .dig、td_load> / embulk> の .yml など、タスクが実行するファイルをタスク名の下に表示',
+      'パスは .dig の場所を基準にプロジェクト内のパスへ解決（例: tasks/finalize.dig の ../queries/x.sql → queries/x.sql）。元の記述はカードのツールチップで確認できます',
+      'py> / rb> はメソッド名、sh> はコマンド、require> / td_run> はWorkflow名・保存クエリ名、SQL直書きは「インラインSQL」と表示',
+      'グラフ検索で実行ファイル名もヒットするように。HTML出力のタスク一覧に「実行ファイル」列を追加',
+    ],
+  },
+  {
     at: '2026-10-02 14:40:00',
     summary: 'トップページに Import Guide を追加し、Treasure AI Studio 用プロンプトを修正',
     details: [
